@@ -4,6 +4,7 @@ import { ChevronLeft, Download, Library, Loader2, Settings } from "lucide-react"
 import { useTranslation } from "react-i18next";
 import { ROUTE_APP_ASSETS, ROUTE_APP_PROJECTS, ROUTE_APP_SETTINGS, episodeEditViewPath } from "@/app-routes";
 import { CreditsBalanceBadge } from "@/components/shared/CreditsBalanceBadge";
+import { DocsIconLink } from "@/components/shared/DocsIconLink";
 import { UsageHeaderEntry } from "@/components/usage/UsageHeaderEntry";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -131,6 +132,7 @@ export function GlobalHeader() {
         <IconLink href={`~${ROUTE_APP_ASSETS}`} label={t("assets:library_title")}>
           <Library aria-hidden />
         </IconLink>
+        <DocsIconLink tooltipSide="bottom" />
         <IconLink href={`~${ROUTE_APP_SETTINGS}`} label={t("dashboard:global_settings")}>
           <Settings aria-hidden />
           {!isConfigComplete && (

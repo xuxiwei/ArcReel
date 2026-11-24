@@ -259,6 +259,8 @@ Do not paste complete logs directly into a public issue. Remove the following be
 
 > ArcReel does not support downgrades. An upgrade may rewrite the data root layout, the database schema, and project structures, and older versions cannot read the upgraded data. To go back to an older version, stop the service and restore the backup taken before the upgrade.
 
+The bundled Compose files set a default 60-second total container stop grace period (`stop_grace_period: 60s`), covering HTTP connection draining, parallel shutdown of in-flight tasks and resident Agent sessions, and database teardown. On receiving a stop signal, the service immediately stops claiming new queued tasks, proactively closes active browser project-event and Agent-session SSE streams (clients reconnect automatically once the new container is up), and waits within the grace period for short in-flight tasks and Agent sessions to finish cleanly. Video tasks still `running` past the grace period automatically attempt to resume and download their results after restart when their provider job ID and valid checkpoint are recorded on a resumable backend, without submitting duplicate paid requests. Increase `stop_grace_period` in Compose if you want a longer drain window for local renders or slower image tasks.
+
 ### 5.2 Upgrade the Default Deployment {#upgrade-sqlite-deployment}
 
 When upgrading from a version released before the data root layout change, run the commands below with your existing Compose file first, then switch to the single-volume Compose file as described in [Data Root Layout Migration](#data-root-layout-migration).
@@ -342,7 +344,7 @@ After confirming that the Vertex credentials work in Settings, delete `deploy/lo
 
 ArcReel upgrades project data automatically at startup. [Back up the data root and database](#backup-and-restore) before upgrading, and leave space for the migration. A large project may need a full directory copy, and the first startup can take longer.
 
-When a parent directory of the project or temporary archive extraction directory is accessed through a symbolic link, migration still assigns legacy scripts to the correct episodes and preserves their existing media content.
+When a parent directory of the project or temporary archive extraction directory is accessed through a symbolic link, migration still assigns legacy scripts to the correct episodes and preserves their existing media content. Migration reassigns duplicate reference-video unit IDs in legacy ad projects. In-place migration preserves the readability of existing media references, so paths that were unreadable before migration remain unreadable afterward.
 
 **Review migration results**
 
