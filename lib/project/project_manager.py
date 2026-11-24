@@ -4034,10 +4034,18 @@ def _project_manager_singleton() -> ProjectManager:
 
 
 def get_project_manager() -> ProjectManager:
-    """返回懒加载的全局 ProjectManager 单例（标准项目根目录）。"""
-    return _project_manager_singleton()
+    """返回懒加载的全局 ProjectManager 单例（标准项目根目录）。
+
+    SaaS 模式下若已绑定 org billing identity，则返回该组织的隔离根（见 saas.isolation）。
+    """
+    from saas.isolation.project_scope import resolve_project_manager
+
+    return resolve_project_manager(_project_manager_singleton())
 
 
 def reset_project_manager_for_tests() -> None:
     """清掉 :func:`get_project_manager` 的单例，下次调用按当前数据根重建。"""
+    from saas.isolation.project_scope import reset_scoped_managers_for_tests
+
     _project_manager_singleton.cache_clear()
+    reset_scoped_managers_for_tests()

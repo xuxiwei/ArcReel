@@ -69,6 +69,10 @@ DOMAINS: dict[str, tuple[Step, ...]] = {
         Step((*UV, "pre-commit", "run", "--all-files", "actionlint")),
         Step((*UV, "pre-commit", "run", "--all-files", "zizmor")),
     ),
+    # AI 代码专项审计：相对 origin/main 的改动行；存量债务靠 .vibeaudit-baseline.json。
+    "vibeaudit": (
+        Step(("uvx", "vibeaudit@0.11.4", "scan", ".", "--fail-on", "high", "--diff", "origin/main", "-q"),),
+    ),
     "frontend": (Step(("pnpm", "check"), ROOT / "frontend"),),
     "website": (Step(("pnpm", "check"), ROOT / "website"),),
     "e2e-record": (Step(("pnpm", "e2e:record:check"), ROOT / "frontend"),),
@@ -77,8 +81,9 @@ DOMAINS: dict[str, tuple[Step, ...]] = {
 # 域 → 触发路径，fnmatch 通配（`*` 也跨目录分隔符）。与 CI 的 .github/actions/domain-filter/action.yml
 # 对照维护：CI 的 backend 域对应这里的 backend、market-core 与 catalog-core，workflow 域对应 workflows；
 # CI 的 docker 域（Dockerfile、public/）没有本地闸门；e2e-record 对应 CI 的 e2e-record-drift job（backend 或
-# frontend 域命中时运行，本地只在录制脚本及其引用的文件变化时随前端触发）。tests 与 conventions 两个域是秒级的
-# 结构审计，触发条件含「新增豁免注释」这类看路径判断不了的情况，按改动选域时总是跑。
+# frontend 域命中时运行，本地只在录制脚本及其引用的文件变化时随前端触发）。vibeaudit 域对应
+# .github/workflows/vibeaudit.yml（本地相对 origin/main 的改动行；CI 另有 PR base / 全量）。tests 与
+# conventions 两个域是秒级的结构审计，触发条件含「新增豁免注释」这类看路径判断不了的情况，按改动选域时总是跑。
 BACKEND_TRIGGERS = (
     "lib/*",
     "server/*",
@@ -110,6 +115,13 @@ TRIGGERS: dict[str, tuple[str, ...]] = {
         "frontend/e2e/support/recorded.ts",
         "frontend/e2e/fixtures/comfyui.ts",
         "frontend/package.json",
+    ),
+    "vibeaudit": (
+        *BACKEND_TRIGGERS,
+        "frontend/*",
+        ".vibeaudit.toml",
+        ".vibeaudit-baseline.json",
+        ".vibeaudit/*",
     ),
 }
 ALWAYS_WHEN_CHANGED = ("tests", "conventions")

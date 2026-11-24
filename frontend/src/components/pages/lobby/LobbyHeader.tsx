@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { cn } from "cn";
 import { ROUTE_APP_ASSETS, ROUTE_APP_SETTINGS, settingsSectionPath } from "@/app-routes";
 import { BRAND } from "@/branding";
+import { CreditsBalanceBadge } from "@/components/shared/CreditsBalanceBadge";
 import { PageHeader } from "@/components/shared/page-shell/PageHeader";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
@@ -48,6 +49,7 @@ export function LobbyHeader({ query, onQueryChange, onCreate, onImport, importin
     <PageHeader
       actions={
         <>
+          <CreditsBalanceBadge />
           <Link href={ROUTE_APP_ASSETS} className={buttonVariants({ variant: "ghost" })}>
             <Library aria-hidden data-icon="inline-start" />
             {t("assets:library_title")}

@@ -1,0 +1,21 @@
+# AI 生成代码专项审计。docs: https://github.com/Ashin-06/vibeaudit
+# 存量债务在 .vibeaudit-baseline.json；误报记录在 .vibeaudit/feedback.json。
+# CI / gate 对 high+ 阻断；pre-commit 用 vibeaudit-secrets 做轻量密钥拦截。
+
+fail-on = "high"
+min-severity = "low"
+baseline = ".vibeaudit-baseline.json"
+offline = true
+external = "none"
+
+# 单操作者部署：路由级 IDOR 由威胁模型与产品边界覆盖，不作为门禁主轴。
+# 真正的多租户鉴权落地前，AUTH003 仍会出现在报告里（medium），但不抬到 fail-on。
+exclude = [
+  ".venv/**",
+  "frontend/node_modules/**",
+  "website/node_modules/**",
+  "projects/**",
+  "**/.pytest_cache/**",
+  "**/dist/**",
+  "**/build/**",
+]

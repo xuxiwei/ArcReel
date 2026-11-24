@@ -87,6 +87,10 @@ async def load_provider_env_overrides() -> dict[str, str]:
         anthropic = await build_anthropic_env(session)
 
     result = AgentEnv(anthropic.env, agent_pricing=anthropic.pricing)
+    from saas.adapter.platform_keys import anthropic_platform_env
+
+    for key, value in (await anthropic_platform_env()).items():
+        result[key] = value
     for key in OTHER_PROVIDER_ENV_KEYS:
         result[key] = ""
     return result

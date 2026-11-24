@@ -3,6 +3,7 @@ import { Link, useLocation } from "wouter";
 import { ChevronLeft, Download, Library, Loader2, Settings } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { ROUTE_APP_ASSETS, ROUTE_APP_PROJECTS, ROUTE_APP_SETTINGS, episodeEditViewPath } from "@/app-routes";
+import { CreditsBalanceBadge } from "@/components/shared/CreditsBalanceBadge";
 import { UsageHeaderEntry } from "@/components/usage/UsageHeaderEntry";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -97,6 +98,7 @@ export function GlobalHeader() {
       </div>
 
       <div className="flex items-center justify-end gap-1">
+        <CreditsBalanceBadge />
         <WorkspaceNotifications onNavigate={handleNotificationNavigate} />
         {usageProjectName && <UsageHeaderEntry projectName={usageProjectName} />}
         <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />

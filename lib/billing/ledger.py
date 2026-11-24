@@ -47,6 +47,13 @@ from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.usage_repo import AgentModelCall, SettlementInput, UsageRepository
 from lib.project.project_change_hints import emit_project_change_batch
+from saas.adapter.credits_hook import (
+    finalize_agent_turn,
+    hold_for_agent_turn,
+    hold_for_api_call,
+    release_for_api_call,
+    settle_api_call_from_db,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -224,16 +231,29 @@ class Ledger:
             session_id=session_id,
             inputs=inputs,
         )
+        try:
+            await hold_for_api_call(
+                api_call_id=call_id,
+                task_id=task_id,
+                purpose=str(purpose or call_type),
+                meta={"provider": provider, "model": model},
+            )
+        except Exception as hold_exc:
+            if await self._finish_failed(call_id, hold_exc):
+                self._emit_recorded(project_name, call_id, CallStatus.FAILED)
+            raise
         call = LedgerCall(call_id, call_type=call_type)
         try:
             yield call
         except asyncio.CancelledError:
             if await self._finish_cancelled(call_id):
                 self._emit_recorded(project_name, call_id, CallStatus.CANCELLED)
+            await release_for_api_call(api_call_id=call_id)
             raise
         except Exception as exc:
             if await self._finish_failed(call_id, exc):
                 self._emit_recorded(project_name, call_id, CallStatus.FAILED)
+            await release_for_api_call(api_call_id=call_id)
             raise
         else:
             if call._settlement is None:
@@ -242,12 +262,15 @@ class Ledger:
                 await self._finish_success(call_id, call._settlement, output_path=output_path)
             except asyncio.CancelledError:
                 self._emit_recorded(project_name, call_id, CallStatus.SUCCESS)
+                await settle_api_call_from_db(call_id, self._session_factory)
                 raise
             except Exception as exc:
                 if await self._finish_failed(call_id, exc):
                     self._emit_recorded(project_name, call_id, CallStatus.FAILED)
+                await release_for_api_call(api_call_id=call_id)
                 raise
             self._emit_recorded(project_name, call_id, CallStatus.SUCCESS)
+            await settle_api_call_from_db(call_id, self._session_factory)
 
     async def pending_call_id_for_task(self, task_id: str) -> int | None:
         """按任务反查它那条待结算的调用行 id，供续跑与派发终态补账定位。"""
@@ -261,7 +284,10 @@ class Ledger:
         兜底），避免 ApiCall 永久卡 pending。
         """
         settlement = _settlement_from_result("video", result, usage=usage)
-        return await self._finalize(call_id=call_id, status=CallStatus.SUCCESS, settlement=settlement)
+        affected = await self._finalize(call_id=call_id, status=CallStatus.SUCCESS, settlement=settlement)
+        if affected:
+            await settle_api_call_from_db(call_id, self._session_factory)
+        return affected
 
     async def resume_failed(self, *, call_id: int, failure: BaseException | str | None = None) -> int:
         """resume 过期/失败补账：翻 pending → failed，零费用不重扣（幂等 0/1）。
@@ -270,18 +296,24 @@ class Ledger:
         ``error_message`` 是原文，认得出的类型再落 ``error_code`` / ``error_params``。不给
         失败信息时那三列保持空——记录表对这些行只有一个「失败」状态，没有短语也没有原文。
         """
-        return await self._finalize(
+        affected = await self._finalize(
             call_id=call_id,
             status=CallStatus.FAILED,
             settlement=SettlementInput(cost_amount=0.0),
             failure=None if failure is None else classify_call_failure(failure),
         )
+        if affected:
+            await release_for_api_call(api_call_id=call_id)
+        return affected
 
     async def resume_cancelled(self, *, call_id: int) -> int:
         """resume 取消补账：翻 pending → cancelled，零费用不重扣（幂等 0/1）。"""
-        return await self._finalize(
+        affected = await self._finalize(
             call_id=call_id, status=CallStatus.CANCELLED, settlement=SettlementInput(cost_amount=0.0)
         )
+        if affected:
+            await release_for_api_call(api_call_id=call_id)
+        return affected
 
     async def record_provider_response(self, *, call_id: int, body: object) -> None:
         """覆盖保存该供应商调用最后一次收到的响应体。"""
@@ -306,17 +338,28 @@ class Ledger:
         """
         if not calls:
             return
-        await self._settle(
-            self._write_agent_turn(
-                project_name=project_name,
-                session_id=session_id,
-                prompt=prompt,
-                user_id=user_id,
-                provider=provider,
-                pricing=pricing,
-                status=status,
-                calls=list(calls),
+        hold_ref = await hold_for_agent_turn(session_id=session_id, call_count=len(calls))
+        try:
+            await self._settle(
+                self._write_agent_turn(
+                    project_name=project_name,
+                    session_id=session_id,
+                    prompt=prompt,
+                    user_id=user_id,
+                    provider=provider,
+                    pricing=pricing,
+                    status=status,
+                    calls=list(calls),
+                )
             )
+        except Exception:
+            await finalize_agent_turn(hold_ref=hold_ref, total_cost=None, currency=None, success=False)
+            raise
+        await finalize_agent_turn(
+            hold_ref=hold_ref,
+            total_cost=None,
+            currency=None,
+            success=status == CallStatus.SUCCESS,
         )
 
     async def _write_agent_turn(self, *, project_name: str, status: CallStatus, **kwargs: Any) -> None:

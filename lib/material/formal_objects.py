@@ -110,8 +110,14 @@ def project_is_retiring(project_path: Path) -> bool:
 
 
 def formal_object_key(digest: str, suffix: str) -> str:
-    """正式素材对象的 key：按内容摘要命名，不带项目或资源名。"""
-    return f"{FORMAL_PREFIX}sha256/{digest[:2]}/{digest}{suffix.lower()}"
+    """正式素材对象的 key：按内容摘要命名，不带项目或资源名。
+
+    SaaS 下叠加 org/user 前缀（隔离 B）。
+    """
+    from saas.isolation.object_keys import apply_tenant_prefix
+
+    relative = apply_tenant_prefix(f"sha256/{digest[:2]}/{digest}{suffix.lower()}")
+    return f"{FORMAL_PREFIX}{relative}"
 
 
 def stores_remotely(resource_type: str) -> bool:

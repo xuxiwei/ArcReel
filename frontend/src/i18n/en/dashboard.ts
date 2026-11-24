@@ -775,6 +775,8 @@ export default {
 
   'save_failed': 'Failed to save: {{message}}',
 
+  'credits_balance_aria': 'Credits {{balance}}, held {{held}}',
+  'credits_balance_tooltip': 'Available {{balance}} · Held {{held}}',
   'usage_entry_aria': 'Usage records · reference cost {{cost}}',
   'usage_entry_aria_active': 'Usage records · reference cost {{cost}} · {{count}} tasks in progress',
   'usage_close_panel': 'Close usage records panel',

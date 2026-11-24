@@ -79,3 +79,4 @@ deploy/production/pgdata/
 docs/verification-reports/
 
 mutants/
+# saas/ is tracked (SaaS adapter); do not ignore

@@ -775,6 +775,8 @@ export default {
 
   'save_failed': '保存失败：{{message}}',
 
+  'credits_balance_aria': '积分余额 {{balance}}，冻结 {{held}}',
+  'credits_balance_tooltip': '可用 {{balance}} · 冻结 {{held}}',
   'usage_entry_aria': '使用记录 · 参考费用 {{cost}}',
   'usage_entry_aria_active': '使用记录 · 参考费用 {{cost}} · {{count}} 个任务进行中',
   'usage_close_panel': '关闭使用记录面板',

@@ -414,6 +414,14 @@ class API {
   }
 
 
+  static async getMeWallet(options: { signal?: AbortSignal } = {}): Promise<{
+    org_id: string | null;
+    username: string | null;
+    wallet: { balance: string; held: string };
+  }> {
+    return this.request("/me/wallet", { signal: options.signal });
+  }
+
   static async getSystemConfig(options: { signal?: AbortSignal } = {}): Promise<GetSystemConfigResponse> {
     return this.request("/system/config", { signal: options.signal });
   }

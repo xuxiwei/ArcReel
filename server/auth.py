@@ -36,11 +36,16 @@ logger = logging.getLogger(__name__)
 
 
 class CurrentUserInfo(BaseModel):
-    """Current authenticated user info."""
+    """Current authenticated user info.
+
+    In SaaS mode `id` is the control-plane `user_id` and `org_id` is set.
+    Self-hosted keeps `id` as the single-tenant DB user id.
+    """
 
     id: str
     sub: str
     role: str = "admin"
+    org_id: str | None = None
 
     model_config = ConfigDict(frozen=True)
 
@@ -458,6 +463,34 @@ def _verify_and_get_payload(token: str) -> dict:
 
 async def _verify_and_get_payload_async(token: str) -> dict:
     """异步验证 token，支持 API Key（arc- 前缀）和 JWT 两种模式。"""
+    from saas.adapter.mode import is_saas
+
+    # SaaS: reject local API keys before they can map to DEFAULT_USER_ID admin (WB-01).
+    if is_saas():
+        if token.startswith(API_KEY_PREFIX):
+            raise HTTPException(
+                status_code=401,
+                detail="SaaS 模式不支持本地 API Key",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        from saas.adapter.auth_bridge import AuthBridgeError, verify_control_plane_token
+
+        try:
+            payload = verify_control_plane_token(token)
+        except AuthBridgeError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=str(exc),
+                headers={"WWW-Authenticate": "Bearer"},
+            ) from exc
+        if payload is None:
+            raise HTTPException(
+                status_code=401,
+                detail="token 无效或已过期",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return payload
+
     if token.startswith(API_KEY_PREFIX):
         payload = await verify_api_key(token)
         if payload is None:
@@ -467,12 +500,31 @@ async def _verify_and_get_payload_async(token: str) -> dict:
                 headers={"WWW-Authenticate": "Bearer"},
             )
         return payload
+
     return _verify_and_get_payload(token)
 
 
 def _payload_to_user(payload: dict) -> CurrentUserInfo:
     """Convert a verified JWT/API-key payload to CurrentUserInfo."""
     from lib.db.base import DEFAULT_USER_ID
+
+    from saas.adapter.mode import is_saas
+
+    if is_saas():
+        user_id = str(payload.get("user_id") or payload.get("sub") or "")
+        org_id = payload.get("org_id")
+        if not user_id or not org_id:
+            raise HTTPException(
+                status_code=401,
+                detail="SaaS 令牌缺少 user_id/org_id",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return CurrentUserInfo(
+            id=user_id,
+            sub=user_id,
+            role="member",
+            org_id=str(org_id),
+        )
 
     sub = payload.get("sub", "")
     return CurrentUserInfo(id=DEFAULT_USER_ID, sub=sub, role="admin")
@@ -495,7 +547,13 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     payload = await _verify_and_get_payload_async(token)
-    return _payload_to_user(payload)
+    user = _payload_to_user(payload)
+    from saas.adapter.billing_context import BillingIdentity, set_billing_identity
+    from saas.adapter.mode import is_saas
+
+    if is_saas() and user.org_id:
+        set_billing_identity(BillingIdentity(user_id=user.id, org_id=user.org_id))
+    return user
 
 
 CurrentUser = Annotated[CurrentUserInfo, Depends(get_current_user)]

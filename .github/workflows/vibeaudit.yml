@@ -1,0 +1,92 @@
+name: vibeaudit
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: vibeaudit-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      audit: ${{ steps.gate.outputs.audit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/domain-filter
+        id: domains
+        with:
+          full: ${{ github.event_name == 'push' }}
+      - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
+        if: github.event_name != 'push'
+        id: vibe_paths
+        with:
+          filters: |
+            config:
+              - '.vibeaudit.toml'
+              - '.vibeaudit-baseline.json'
+              - '.vibeaudit/**'
+              - '.github/workflows/vibeaudit.yml'
+      - id: gate
+        env:
+          BACKEND: ${{ steps.domains.outputs.backend }}
+          FRONTEND: ${{ steps.domains.outputs.frontend }}
+          WORKFLOW: ${{ steps.domains.outputs.workflow }}
+          CONFIG: ${{ steps.vibe_paths.outputs.config || 'false' }}
+        run: |
+          if [[ "$BACKEND" == "true" || "$FRONTEND" == "true" || "$WORKFLOW" == "true" || "$CONFIG" == "true" ]]; then
+            echo "audit=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "audit=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  audit:
+    needs: changes
+    if: needs.changes.outputs.audit == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+
+      - name: AI code audit (vibeaudit)
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          # 配置见 .vibeaudit.toml（fail-on high、baseline、offline）
+          args=(scan . -r sarif:vibeaudit.sarif -q)
+          if [[ "$EVENT_NAME" == "pull_request" && -n "$BASE_REF" ]]; then
+            git fetch --no-tags --depth=1 origin "$BASE_REF"
+            args+=(--diff "origin/${BASE_REF}")
+          fi
+          uvx vibeaudit@0.11.4 "${args[@]}"
+
+      - name: Upload SARIF
+        if: always() && hashFiles('vibeaudit.sarif') != ''
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        continue-on-error: true
+        with:
+          sarif_file: vibeaudit.sarif
+          category: vibeaudit

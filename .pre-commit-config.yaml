@@ -50,3 +50,9 @@ repos:
         language: system
         pass_filenames: false
         files: ^frontend/.*\.[jt]sx?$
+
+  # 轻量密钥门禁（~0.2s）；完整 AI 代码审计在 CI（.github/workflows/vibeaudit.yml）与 gate 的 vibeaudit 域。
+  - repo: https://github.com/Ashin-06/vibeaudit
+    rev: v0.11.4
+    hooks:
+      - id: vibeaudit-secrets

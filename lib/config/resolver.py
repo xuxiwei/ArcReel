@@ -1689,6 +1689,9 @@ class ConfigResolver:
         active = await cred_repo.get_active(provider_id)
         if active:
             await asyncio.to_thread(active.overlay_config, config)
+        from saas.adapter.platform_keys import inject_platform_keys
+
+        await inject_platform_keys(config, provider_id)
         return config, active.id if active else None
 
     async def _resolve_reference_payload_limits(
@@ -1719,7 +1722,9 @@ class ConfigResolver:
                 cred.overlay_config(configs.setdefault(provider_id, {}))
 
         await asyncio.to_thread(overlay_all)
-        return configs
+        from saas.adapter.platform_keys import inject_platform_keys_bulk
+
+        return await inject_platform_keys_bulk(configs)
 
     async def default_text_backend(self) -> tuple[str, str]:
         """返回 (provider_id, model_id)。"""

@@ -80,6 +80,7 @@ export function CredentialList({ providerId, supportsBaseUrl, secretFields, secr
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<DialogState>(null);
+  const [platformManagedKeys, setPlatformManagedKeys] = useState(false);
   const [deleting, setDeleting] = useState<ProviderCredential | null>(null);
   const headingId = useId();
   const isVertex = providerId === "gemini-vertex";
@@ -118,6 +119,24 @@ export function CredentialList({ providerId, supportsBaseUrl, secretFields, secr
     return () => loadController.current?.abort();
   }, [load]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/v1/auth/status", { signal: controller.signal })
+      .then(async (res) => {
+        if (!res.ok) return;
+        const payload: unknown = await res.json();
+        if (
+          typeof payload === "object" &&
+          payload !== null &&
+          (payload as { deployment_mode?: unknown }).deployment_mode === "saas"
+        ) {
+          setPlatformManagedKeys(true);
+        }
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+
   const activate = useCallback(
     async (cred: ProviderCredential) => {
       try {
@@ -136,10 +155,14 @@ export function CredentialList({ providerId, supportsBaseUrl, secretFields, secr
         <h3 id={headingId} className="text-base font-medium">
           {t("provider_credentials_title")}
         </h3>
-        <Button variant="outline" size="sm" className="ml-auto" onClick={() => setDialog({ mode: "add" })}>
-          <Plus data-icon="inline-start" />
-          {t("add_key")}
-        </Button>
+        {!platformManagedKeys ? (
+          <Button variant="outline" size="sm" className="ml-auto" onClick={() => setDialog({ mode: "add" })}>
+            <Plus data-icon="inline-start" />
+            {t("add_key")}
+          </Button>
+        ) : (
+          <p className="ml-auto text-sm text-muted-foreground">{t("saas_platform_keys_hint", { defaultValue: "Keys are managed by the platform" })}</p>
+        )}
       </div>
 
       {loading ? (

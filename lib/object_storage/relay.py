@@ -45,9 +45,15 @@ _SETTLED_STATES = frozenset({"active", "failed"})
 
 
 def relay_object_key(suffix: str, *, now: datetime | None = None) -> str:
-    """新中转副本的对象 key：按日期分目录，文件名随机，不带项目或资源名。"""
+    """新中转副本的对象 key：按日期分目录，文件名随机，不带项目或资源名。
+
+    SaaS 下叠加 org/user 前缀（隔离 B）。
+    """
+    from saas.isolation.object_keys import apply_tenant_prefix
+
     day = (now or utc_now()).strftime("%Y%m%d")
-    return f"{RELAY_PREFIX}{day}/{uuid.uuid4().hex}{suffix.lower()}"
+    relative = apply_tenant_prefix(f"{day}/{uuid.uuid4().hex}{suffix.lower()}")
+    return f"{RELAY_PREFIX}{relative}"
 
 
 def _retry_delay(attempts: int) -> timedelta:

@@ -448,13 +448,16 @@ class GenerationQueue:
                 raise ActiveTaskRequestConflict(resource_id=resource_id, existing_task_id=existing_task_id)
 
         async def _enqueue() -> dict[str, Any]:
+            from saas.adapter.billing_context import get_billing_identity, stamp_task_payload
+
+            stamped_payload = stamp_task_payload(payload, get_billing_identity())
             async with self._task_repo() as repo:
                 return await repo.enqueue(
                     project_name=project_name,
                     task_type=task_type,
                     media_type=media_type,
                     resource_id=resource_id,
-                    payload=payload,
+                    payload=stamped_payload,
                     script_file=script_file,
                     resource_type=resource_type,
                     source=source,

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Loader2 } from "lucide-react";
 import { useAutoFocus } from "@/hooks/useAutoFocus";
 import { errMsg, voidPromise } from "@/utils/async";
@@ -12,16 +12,40 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+type AuthMode = "login" | "register";
+
 export function LoginPage() {
   const { t, i18n } = useTranslation(["common", "auth"]);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [saasMode, setSaasMode] = useState(false);
+  const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [, setLocation] = useLocation();
   const search = useSearch();
   const login = useAuthStore((s) => s.login);
   const usernameRef = useAutoFocus<HTMLInputElement>();
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/v1/auth/status", { signal: controller.signal })
+      .then(async (res) => {
+        if (!res.ok) return;
+        const payload: unknown = await res.json();
+        if (
+          typeof payload === "object" &&
+          payload !== null &&
+          (payload as { deployment_mode?: unknown }).deployment_mode === "saas"
+        ) {
+          setSaasMode(true);
+        }
+      })
+      .catch(() => {
+        /* keep self-hosted login UI */
+      });
+    return () => controller.abort();
+  }, []);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -29,35 +53,68 @@ export function LoginPage() {
     setLoading(true);
 
     try {
-      const body = new URLSearchParams({
-        username,
-        password,
-        grant_type: "password",
-      });
-      const resp = await fetch("/api/v1/auth/token", {
-        method: "POST",
-        headers: {
-          "Accept-Language": i18n.language || "zh",
-        },
-        body,
-      });
+      let accessToken: string;
 
-      if (!resp.ok) {
-        const data = await resp.json().catch(() => ({})) as Partial<ErrorResponse>;
-        const detail = data.detail;
-        throw new Error(typeof detail === "string" ? detail : t("auth:login_failed"));
+      if (authMode === "register") {
+        const resp = await fetch("/api/v1/auth/register", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Accept-Language": i18n.language || "zh",
+          },
+          body: JSON.stringify({ username, password }),
+        });
+        if (!resp.ok) {
+          const data = await resp.json().catch(() => ({})) as Partial<ErrorResponse>;
+          const detail = data.detail;
+          throw new Error(typeof detail === "string" ? detail : t("auth:register_failed"));
+        }
+        const data = await resp.json() as LoginResponse;
+        accessToken = data.access_token;
+      } else {
+        const body = new URLSearchParams({
+          username,
+          password,
+          grant_type: "password",
+        });
+        const resp = await fetch("/api/v1/auth/token", {
+          method: "POST",
+          headers: {
+            "Accept-Language": i18n.language || "zh",
+          },
+          body,
+        });
+
+        if (!resp.ok) {
+          const data = await resp.json().catch(() => ({})) as Partial<ErrorResponse>;
+          const detail = data.detail;
+          throw new Error(typeof detail === "string" ? detail : t("auth:login_failed"));
+        }
+
+        const data = await resp.json() as LoginResponse;
+        accessToken = data.access_token;
       }
 
-      const data = await resp.json() as LoginResponse;
-      login(data.access_token, username);
+      login(accessToken, username);
       const returnTo = safeReturnPath(new URLSearchParams(search).get("from"));
       setLocation(returnTo ?? "/app/projects");
     } catch (err) {
-      setError(errMsg(err, t("auth:login_failed")));
+      setError(errMsg(err, authMode === "register" ? t("auth:register_failed") : t("auth:login_failed")));
     } finally {
       setLoading(false);
     }
   };
+
+  const subtitle =
+    authMode === "register" ? t("auth:register_subtitle") : t("auth:login_subtitle");
+  const submitLabel =
+    authMode === "register"
+      ? loading
+        ? t("auth:registering")
+        : t("auth:register")
+      : loading
+        ? t("auth:logging_in")
+        : t("auth:login");
 
   return (
     <div data-testid="login-page" className="relative flex h-dvh overflow-y-auto bg-background p-4 text-foreground">
@@ -74,7 +131,7 @@ export function LoginPage() {
             </picture>
             <span>{BRAND.name}</span>
           </h1>
-          <p className="text-xs font-medium text-muted-foreground">{t("auth:login_subtitle")}</p>
+          <p className="text-xs font-medium text-muted-foreground">{subtitle}</p>
         </div>
 
         <form onSubmit={voidPromise(handleSubmit)} className="flex flex-col gap-4">
@@ -89,6 +146,7 @@ export function LoginPage() {
               onChange={(e) => setUsername(e.target.value)}
               ref={usernameRef}
               required
+              minLength={authMode === "register" ? 3 : undefined}
             />
           </div>
 
@@ -97,10 +155,11 @@ export function LoginPage() {
             <Input
               id="login-password"
               type="password"
-              autoComplete="current-password"
+              autoComplete={authMode === "register" ? "new-password" : "current-password"}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
+              minLength={authMode === "register" ? 8 : undefined}
             />
           </div>
 
@@ -112,9 +171,22 @@ export function LoginPage() {
 
           <Button type="submit" size="lg" disabled={loading}>
             {loading && <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />}
-            {loading ? t("auth:logging_in") : t("auth:login")}
+            {submitLabel}
           </Button>
         </form>
+
+        {saasMode && (
+          <button
+            type="button"
+            className="text-center text-sm text-muted-foreground underline-offset-4 hover:underline"
+            onClick={() => {
+              setError("");
+              setAuthMode((m) => (m === "login" ? "register" : "login"));
+            }}
+          >
+            {authMode === "login" ? t("auth:need_account") : t("auth:have_account")}
+          </button>
+        )}
       </div>
     </div>
   );

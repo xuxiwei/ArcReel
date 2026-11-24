@@ -770,9 +770,21 @@ class GenerationWorker:
         执行在任务对项目的认领下进行。项目在执行期间被删除时认领作废，执行器在落盘前中止；
         无论执行器以什么结果返回，任务都以 ``project_deleted_during_task`` 失败。
         """
+        from saas.adapter.billing_context import bind_billing_identity, identity_from_task_payload
+        from saas.adapter.mode import is_saas
+
         task_id = task["task_id"]
-        with claim_task_project(task_id, task.get("project_name")) as claim:
-            await self._run_claimed_task(task, claim, claimed_provider_id=claimed_provider_id)
+        identity = identity_from_task_payload(
+            task.get("payload") if isinstance(task.get("payload"), dict) else None,
+            user_id=str(task.get("user_id") or "") or None,
+        )
+        if is_saas() and identity is None:
+            logger.error("saas task refused: missing billing identity task_id=%s", task_id)
+            await self.queue.mark_task_failed(task_id, "billing_identity_missing")
+            return
+        with bind_billing_identity(identity):
+            with claim_task_project(task_id, task.get("project_name")) as claim:
+                await self._run_claimed_task(task, claim, claimed_provider_id=claimed_provider_id)
 
     async def _run_claimed_task(
         self, task: dict[str, Any], claim: TaskProjectClaim, *, claimed_provider_id: str

@@ -614,6 +614,14 @@ async def list_credentials(
     return CredentialListResponse(credentials=[_cred_to_response(c) for c in creds])
 
 
+
+def _reject_saas_byok(_t: Translator) -> None:
+    from saas.adapter.mode import is_saas
+
+    if is_saas():
+        raise HTTPException(status_code=403, detail="SaaS mode uses platform-managed provider keys")
+
+
 @router.post("/{provider_id}/credentials", status_code=201, response_model=CredentialResponse)
 async def create_credential(
     provider_id: str,
@@ -623,6 +631,7 @@ async def create_credential(
     session: AsyncSession = Depends(get_async_session),
 ) -> CredentialResponse:
     _validate_provider(provider_id, _t)
+    _reject_saas_byok(_t)
     _resolve_credential_group_switch(provider_id, _submitted_secret_values(provider_id, body), None, _t)
     repo = CredentialRepository(session)
     cred = await repo.create(
@@ -650,6 +659,7 @@ async def update_credential(
     session: AsyncSession = Depends(get_async_session),
 ) -> Response:
     _validate_provider(provider_id, _t)
+    _reject_saas_byok(_t)
     repo = CredentialRepository(session)
     cred = await _get_credential_or_404(repo, provider_id, cred_id, _t)
     submitted = _submitted_secret_values(provider_id, body)
@@ -689,6 +699,7 @@ async def delete_credential(
     session: AsyncSession = Depends(get_async_session),
 ) -> Response:
     _validate_provider(provider_id, _t)
+    _reject_saas_byok(_t)
     repo = CredentialRepository(session)
     cred = await _get_credential_or_404(repo, provider_id, cred_id, _t)
     cred_path = cred.credentials_file()
@@ -716,6 +727,7 @@ async def activate_credential(
     session: AsyncSession = Depends(get_async_session),
 ) -> Response:
     _validate_provider(provider_id, _t)
+    _reject_saas_byok(_t)
     repo = CredentialRepository(session)
     await _get_credential_or_404(repo, provider_id, cred_id, _t)
     await repo.activate(cred_id, provider_id)

@@ -53,8 +53,20 @@ class DataRootLayout:
 
     @classmethod
     def for_project_dir(cls, project_dir: Path) -> DataRootLayout:
-        """由一个项目目录求其所在数据根的布局（Agent skill 脚本以项目目录为 cwd 运行）。"""
-        return cls(Path(project_dir).parent.parent)
+        """由一个项目目录求其所在数据根的布局（Agent skill 脚本以项目目录为 cwd 运行）。
+
+        兼容扁平 `projects/<name>` 与 SaaS `projects/org/<org_id>/<name>`。
+        """
+        path = Path(project_dir).resolve()
+        current = path.parent
+        for _ in range(6):
+            if current.name == "projects":
+                return cls(current.parent)
+            parent = current.parent
+            if parent == current:
+                break
+            current = parent
+        return cls(path.parent.parent)
 
     @property
     def projects_dir(self) -> Path:
