@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from lib.generation.generation_queue import GenerationQueue
+    from lib.project.task_project_claim import TaskProjectClaim
 
 logger = logging.getLogger(__name__)
 
@@ -35,5 +36,14 @@ class TaskWrites:
     async def failed(self, task_id: str, error: str) -> int:
         return await self.retry(task_id, lambda: self.queue.mark_task_failed(task_id, error))
 
-    async def succeeded(self, task_id: str, result: dict[str, Any] | None) -> int:
-        return await self.retry(task_id, lambda: self.queue.mark_task_succeeded(task_id, result))
+    async def succeeded(
+        self, task_id: str, result: dict[str, Any] | None, *, claim: TaskProjectClaim | None = None
+    ) -> int | None:
+        """返回受影响行数，项目认领作废时返回 None。"""
+
+        async def write() -> int | None:
+            if claim is not None and claim.revoked:
+                return None
+            return await self.queue.mark_task_succeeded(task_id, result)
+
+        return await self.retry(task_id, write)

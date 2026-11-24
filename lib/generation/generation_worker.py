@@ -59,6 +59,7 @@ from lib.generation.task_failure_encoding import encode_task_failure_message
 from lib.generation.task_ownership import TaskLease, TaskOwnership
 from lib.generation.task_writes import TaskWrites
 from lib.generation.video_resume import ResumeExecutor, VideoResumeRunner, fail_task_of_deleted_project
+from lib.infra.async_thread import run_noninterruptible_async
 from lib.project.project_manager import get_project_manager
 from lib.project.task_project_claim import TaskProjectClaim, claim_task_project
 
@@ -561,7 +562,8 @@ class GenerationWorker:
                 except Exception:
                     logger.exception("worker 主循环本轮出错，%.1fs 后重试", self.heartbeat_interval)
                     self._orphan_handled_once = False
-                    await self._wait_for_wake(self.heartbeat_interval)
+                    if not self._stop_event.is_set():
+                        await self._wait_for_wake(self.heartbeat_interval)
 
             await self._wait_inflight_completion()
         finally:
@@ -613,6 +615,8 @@ class GenerationWorker:
 
         claimed_any = await self._claim_tasks()
 
+        if self._stop_event.is_set():
+            return
         if claimed_any:
             await asyncio.sleep(0.05)
         else:
@@ -828,14 +832,16 @@ class GenerationWorker:
                 task["video_poll_timeout_seconds"] = await read_video_poll_timeout_seconds()
             result = await self._executor(task, claimed_provider_id=provider_id)
         except asyncio.CancelledError:
-            await asyncio.shield(self.queue.mark_task_interrupted(task_id))
+            await run_noninterruptible_async(self.queue.mark_task_interrupted(task_id))
             raise
         except DispatchProviderChanged as exc:
             if claim.revoked:
                 await fail_task_of_deleted_project(self._writes, task)
                 return
             try:
-                await asyncio.shield(self.queue.persist_execution_provider_id(task_id, exc.actual_provider_id))
+                await run_noninterruptible_async(
+                    self.queue.persist_execution_provider_id(task_id, exc.actual_provider_id)
+                )
             except Exception:
                 logger.warning(
                     "执行 provider 漂移后的投影刷新失败 task_id=%s provider=%s",
@@ -843,7 +849,7 @@ class GenerationWorker:
                     exc.actual_provider_id,
                     exc_info=True,
                 )
-            requeued = await asyncio.shield(self._requeue_single_task(task_id))
+            requeued = await run_noninterruptible_async(self._requeue_single_task(task_id))
             if not requeued:
                 logger.error(
                     "任务 %s 执行 provider 从 %s 变为 %s，但回队失败",
@@ -851,7 +857,7 @@ class GenerationWorker:
                     exc.claimed_provider_id,
                     exc.actual_provider_id,
                 )
-                await asyncio.shield(
+                await run_noninterruptible_async(
                     self._writes.failed(
                         task_id,
                         encode_failure(
@@ -874,20 +880,17 @@ class GenerationWorker:
                 await fail_task_of_deleted_project(self._writes, task)
                 return
             logger.exception("任务失败 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
-            await asyncio.shield(self._writes.failed(task_id, encode_task_failure_message(exc)))
+            await run_noninterruptible_async(self._writes.failed(task_id, encode_task_failure_message(exc)))
             return
 
-        if claim.revoked:
-            await fail_task_of_deleted_project(self._writes, task)
-            return
         try:
-            await asyncio.shield(self._writes.succeeded(task_id, result))
-        except asyncio.CancelledError:
-            await asyncio.shield(self.queue.mark_task_interrupted(task_id))
-            raise
+            written = await run_noninterruptible_async(self._writes.succeeded(task_id, result, claim=claim))
         except Exception:
             logger.exception("标记任务成功失败 %s", task_id)
             raise
+        if written is None:
+            await fail_task_of_deleted_project(self._writes, task)
+            return
         logger.info("任务完成 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
 
     async def _settle_interrupted_calls_via_ledger(self, *, taskless_started_before: datetime | None) -> int:
@@ -900,23 +903,30 @@ class GenerationWorker:
 
         async def handoff() -> dict[str, Any]:
             poll_timeout_seconds = await read_video_poll_timeout_seconds()
+            if self._stop_event.is_set():
+                raise WorkerStoppingError
             lease = self._ownership.try_acquire(task_id)
             if lease is None:
                 row = await self.queue.get_task(task_id)
                 if row is None or row["status"] != "failed":
                     raise ValueError("task is not eligible for download retry")
                 lease = await self._ownership.acquire(task_id)
+            transferred = False
             try:
+                if self._stop_event.is_set():
+                    raise WorkerStoppingError
                 task = await self.queue.retry_artifact_download(task_id)
-            except ValueError:
+                self._recovery.retry_artifact_download(task, poll_timeout_seconds=poll_timeout_seconds, lease=lease)
+                transferred = True
+                return task
+            except (ValueError, WorkerStoppingError):
                 raise
             except Exception:
                 self._request_rescan()
                 raise
             finally:
-                lease.release()
-            self._recovery.retry_artifact_download(task, poll_timeout_seconds=poll_timeout_seconds)
-            return task
+                if not transferred:
+                    lease.release()
 
         pending = asyncio.create_task(handoff(), name=f"retry-handoff-{task_id}")
         self._handoffs.add(pending)

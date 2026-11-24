@@ -527,18 +527,32 @@ class TestGenerationWorker:
             '[script_edit_items_not_list] {"kind": "segments", "type_name": "dict"}',
         )
 
-    async def test_task_whose_project_was_deleted_after_its_last_write_does_not_succeed(self, monkeypatch):
-        """执行器已写完、返回之前项目才被删除：产物随项目目录一起删掉了，任务不能报成功。"""
-        queue = FakeWorkerQueue()
-        worker = GenerationWorker(
-            queue=queue, executor=stub_executors.execute, resume_executor=stub_executors.execute_resume
-        )
+    @pytest.mark.parametrize("during_backoff", [False, True])
+    async def test_task_whose_project_was_deleted_after_its_last_write_does_not_succeed(self, during_backoff):
+        """执行器产出后删除项目，任务不能在首次写库或重试时再报成功。"""
 
-        async def _project_deleted_before_return(task, **_kwargs):
-            revoke_task_project_claims([task["task_id"]])
+        class Queue(FakeWorkerQueue):
+            async def mark_task_succeeded(self, task_id, result):
+                if not revoked:
+                    raise OSError("database busy")
+                return await super().mark_task_succeeded(task_id, result)
+
+        revoked = False
+
+        async def backoff(_delay):
+            nonlocal revoked
+            revoke_task_project_claims(["t_deleted"])
+            revoked = True
+
+        async def execute(task, **_kwargs):
+            if not during_backoff:
+                revoke_task_project_claims([task["task_id"]])
             return {"ok": True}
 
-        monkeypatch.setattr(stub_executors, "generation", _project_deleted_before_return)
+        queue = Queue()
+        worker = GenerationWorker(
+            queue=queue, executor=execute, resume_executor=stub_executors.execute_resume, write_backoff=backoff
+        )
         await worker._process_task({"task_id": "t_deleted", "project_name": "demo"}, claimed_provider_id="test")
         assert queue.succeeded == []
         assert queue.failed == [("t_deleted", "[project_deleted_during_task]")]
@@ -641,9 +655,19 @@ class TestGenerationWorker:
             worker_db, "shutdown-run", task_type="storyboard", media_type="image", status="queued", provider_id="ark"
         )
         started = asyncio.Event()
+        draining = asyncio.Event()
         release = asyncio.Event()
 
         async def _execute(_task, *, claimed_provider_id):
+            execution = asyncio.current_task()
+            assert execution is not None
+            add_done_callback = execution.add_done_callback
+
+            def observe_drain(callback, **kwargs):
+                add_done_callback(callback, **kwargs)
+                draining.set()
+
+            monkeypatch.setattr(execution, "add_done_callback", observe_drain)
             started.set()
             await release.wait()
             return {"ok": True}
@@ -660,10 +684,13 @@ class TestGenerationWorker:
         await asyncio.wait_for(started.wait(), timeout=3)
         worker.stop_admission()
         stopping = asyncio.create_task(worker.stop())
-        assert await task_status(worker_db, "shutdown-run") == "running"
-        assert not stopping.done()
-        release.set()
-        await asyncio.wait_for(stopping, timeout=3)
+        try:
+            await asyncio.wait_for(draining.wait(), timeout=3)
+            assert await task_status(worker_db, "shutdown-run") == "running"
+            assert not stopping.done()
+        finally:
+            release.set()
+            await asyncio.wait_for(stopping, timeout=3)
         assert await task_status(worker_db, "shutdown-run") == "succeeded"
 
     @pytest.mark.asyncio
