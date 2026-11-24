@@ -1,5 +1,93 @@
 # Changelog
 
+## [0.38.0](https://github.com/ArcReel/ArcReel/compare/v0.37.0...v0.38.0) (2026-11-24)
+
+
+### ✨ 新功能
+
+* **catalog:** 刷新出厂模型推荐与协议回退 ([e78cf84](https://github.com/ArcReel/ArcReel/commit/e78cf84bf3b7d3c75a7ef529a0e4df85ac4e06f9)), closes [#4060](https://github.com/ArcReel/ArcReel/issues/4060)
+* **edit:** 在剪辑片段详情中提示转场效果以导出为准 ([778acc1](https://github.com/ArcReel/ArcReel/commit/778acc1162bbc2135998149e3355220c480f1cec)), closes [#3952](https://github.com/ArcReel/ArcReel/issues/3952)
+* **image:** MiniMax 新增 H3 图片调用端点，支持文生图与至多 16 张参考图编辑 ([e0bb274](https://github.com/ArcReel/ArcReel/commit/e0bb27456ce9f5c04745a0d94418a4f14d7ea68c)), closes [#3777](https://github.com/ArcReel/ArcReel/issues/3777)
+* **project-settings:** 图生图与文生图使用不同模型时提供独立分辨率设置 ([d4fff6b](https://github.com/ArcReel/ArcReel/commit/d4fff6bc09a95dba9f7b9eb3ecf0886308be8e0d)), closes [#3951](https://github.com/ArcReel/ArcReel/issues/3951)
+* **settings:** 按厂商收纳多渠道供应商并补充方舟 Agent Plan 条款提示 ([#3992](https://github.com/ArcReel/ArcReel/issues/3992)) ([7c1be80](https://github.com/ArcReel/ArcReel/commit/7c1be80a75a021844d5cee5cc789d52e944ff12f))
+* **ui:** 在大厅、工作区顶栏与设置关于页提供文档快捷入口 ([79ca21e](https://github.com/ArcReel/ArcReel/commit/79ca21e1ab916d7d1b4e3a7350dc474844072529)), closes [#3804](https://github.com/ArcReel/ArcReel/issues/3804)
+* **video:** Vidu 支持 Q3 Drama、Mix、Ad 参考生视频 ([a6dc923](https://github.com/ArcReel/ArcReel/commit/a6dc92325a50d505565d38a7d39420545dc96406)), closes [#3864](https://github.com/ArcReel/ArcReel/issues/3864)
+
+
+### 🐛 Bug 修复
+
+* **agent:** 防止切换会话后显示旧响应，补全发送后遗漏的消息 ([b03b844](https://github.com/ArcReel/ArcReel/commit/b03b84404ba44520b92960e04157ef2e1080be83)), closes [#4064](https://github.com/ArcReel/ArcReel/issues/4064)
+* allow longer Vidu Q3 Turbo reference prompts ([c595b29](https://github.com/ArcReel/ArcReel/commit/c595b29a1af7b795e888a5386ecd8359e1721f46)), closes [#3897](https://github.com/ArcReel/ArcReel/issues/3897)
+* **assets:** 资产占用时禁用入库覆盖 ([302f67c](https://github.com/ArcReel/ArcReel/commit/302f67ce7d3d68407b9aacc30d40da7ae92a451c))
+* **billing:** 按实际图片请求与默认画质计算参考费用 ([9a66f67](https://github.com/ArcReel/ArcReel/commit/9a66f67c363d12f3804ff377011d85925442b5cd)), closes [#3871](https://github.com/ArcReel/ArcReel/issues/3871)
+* **catalog:** 保留 Gemini 生图限流并去耦出厂快照测试 ([8e5b45d](https://github.com/ArcReel/ArcReel/commit/8e5b45de75971a88f61c1196cc21b4d4dc630f70)), closes [#4060](https://github.com/ArcReel/ArcReel/issues/4060)
+* **episode:** 修复规划失败提示的长文本溢出与详情对比度 ([dab0f6a](https://github.com/ArcReel/ArcReel/commit/dab0f6aad251f82c5216ad413121643e6dd80890)), closes [#3811](https://github.com/ArcReel/ArcReel/issues/3811)
+* **episode:** 重新规划因出错中断时，方案栏显示失败原因 ([224dbc5](https://github.com/ArcReel/ArcReel/commit/224dbc5bde3bd65b820d80ab87245a220bb243b9)), closes [#3811](https://github.com/ArcReel/ArcReel/issues/3811)
+* **frontend:** 项目快照刷新失败时不自动跳转聚焦 ([a0d895e](https://github.com/ArcReel/ArcReel/commit/a0d895e8acf0dac312d868fdb4865e711384ddce)), closes [#4066](https://github.com/ArcReel/ArcReel/issues/4066)
+* **gemini-image:** 内容被拦截时报出原因，不再抛 TypeError ([#3605](https://github.com/ArcReel/ArcReel/issues/3605)) ([ed44ab2](https://github.com/ArcReel/ArcReel/commit/ed44ab25a3d25d3c4c68ffaca003fc25869a4e2c))
+* **lessons-sweep:** 从固定窗口终点读取上次巡检标记 ([fed952b](https://github.com/ArcReel/ArcReel/commit/fed952b5f25fb48a9b26e70a5878705c9ecbf988))
+* **lessons-sweep:** 补全浅克隆历史后收集巡检窗口 ([2e01498](https://github.com/ArcReel/ArcReel/commit/2e01498834ebc1de3a0914c13309f0fa4103b6d3)), closes [#3824](https://github.com/ArcReel/ArcReel/issues/3824)
+* **lorebook:** 按任务独立结算试听占用 ([ed7e354](https://github.com/ArcReel/ArcReel/commit/ed7e35490ece1b448c1de1d62acfa6eaaff28e87))
+* **lorebook:** 音色试听任务移出最近列表后仍按任务 ID 结算 ([69e00af](https://github.com/ArcReel/ArcReel/commit/69e00af85cea42f62f3c96593308126e0648f045)), closes [#3955](https://github.com/ArcReel/ArcReel/issues/3955)
+* **project:** 保留旧媒体绝对引用的目录别名 ([b58cf93](https://github.com/ArcReel/ArcReel/commit/b58cf933bdf9e53e2fc8b35d7ea4ad28a0ac1b87))
+* **project:** 修复经符号链接路径升级和导入旧项目 ([e30979a](https://github.com/ArcReel/ArcReel/commit/e30979a33e4908e56f43f436182f024cc7cf090b)), closes [#3891](https://github.com/ArcReel/ArcReel/issues/3891)
+* **project:** 新建项目时风格参考图上传失败，提示带上服务端给出的原因 ([9fe6564](https://github.com/ArcReel/ArcReel/commit/9fe65649ad9b3c1242a1661713aeab9829ff9bcc)), closes [#3872](https://github.com/ArcReel/ArcReel/issues/3872)
+* **project:** 新建项目时风格参考图因网络或网关错误上传失败，回落到通用提示 ([7c35042](https://github.com/ArcReel/ArcReel/commit/7c350420b259fe45b30a75afa33fefe265b86b66)), closes [#3872](https://github.com/ArcReel/ArcReel/issues/3872) [#3678](https://github.com/ArcReel/ArcReel/issues/3678)
+* **project:** 规范风格参考图上传失败后的重试提示 ([2412efc](https://github.com/ArcReel/ArcReel/commit/2412efc2e21b3e170681a60105bdb7c98f2e666c)), closes [#3896](https://github.com/ArcReel/ArcReel/issues/3896)
+* **project:** 资产字段里超长的配音风格不再让视频结算失败 ([#3881](https://github.com/ArcReel/ArcReel/issues/3881)) ([fb64e26](https://github.com/ArcReel/ArcReel/commit/fb64e2689d30f4f655108474555a5a2a7b522c99))
+* **prompts:** 角色资产图默认提示词去掉未设定的「体表花纹」引导 ([878864e](https://github.com/ArcReel/ArcReel/commit/878864e52278f37edeb0cf8b285ea8b1429f7116)), closes [#3678](https://github.com/ArcReel/ArcReel/issues/3678)
+* **providers:** 允许无估算规则的按 token 计价图片条目收录价格，固定有声的 Vidu Mix 拒绝静音请求 ([22e9603](https://github.com/ArcReel/ArcReel/commit/22e96030cf3cbdc31fca8c3ebbb236fc4b0a5c32)), closes [#3864](https://github.com/ArcReel/ArcReel/issues/3864) [#3777](https://github.com/ArcReel/ArcReel/issues/3777)
+* **providers:** 自定义视频音轨保留端点开关与模型出声事实 ([ee9dd1f](https://github.com/ArcReel/ArcReel/commit/ee9dd1ffea4d399fe5300b14ee886ab70d48aaca)), closes [#3868](https://github.com/ArcReel/ArcReel/issues/3868)
+* **providers:** 试听弹窗的手填音色补上页面回归，图片计价口径写进端点与供应商文档 ([4a53414](https://github.com/ArcReel/ArcReel/commit/4a5341496fb9474cc4ebb405f1111b2e7c486822)), closes [#3858](https://github.com/ArcReel/ArcReel/issues/3858) [#3871](https://github.com/ArcReel/ArcReel/issues/3871)
+* **queue:** 并发保存供应商配置或同步模型目录时，并发上限始终按最新设置生效 ([1c7f215](https://github.com/ArcReel/ArcReel/commit/1c7f215deff01553b2f0724751ab41edface8114)), closes [#3812](https://github.com/ArcReel/ArcReel/issues/3812)
+* reject incomplete or excess generation references before submission ([cd65c94](https://github.com/ArcReel/ArcReel/commit/cd65c94d6e38d384fe341799ed2d96f1b31eaeeb)), closes [#3869](https://github.com/ArcReel/ArcReel/issues/3869)
+* **script:** 文本任务失败摘要按界面语言显示，不再带出数据库原文与给 Agent 的工具报告 ([32b25a7](https://github.com/ArcReel/ArcReel/commit/32b25a751f9f34582388fbb4224cdfaab09775b3)), closes [#3809](https://github.com/ArcReel/ArcReel/issues/3809)
+* **script:** 草稿自定义校验说明随界面语言显示 ([ac70fbb](https://github.com/ArcReel/ArcReel/commit/ac70fbb54fa980f547fc5b40fc5c771b868c0bf7)), closes [#3815](https://github.com/ArcReel/ArcReel/issues/3815)
+* **storyboard:** 提交分镜图时统一计入在途的上一分镜图 ([23ed593](https://github.com/ArcReel/ArcReel/commit/23ed5932e210e0ac50fdfa6320158f7ed0e4d50a)), closes [#4000](https://github.com/ArcReel/ArcReel/issues/4000)
+* **tts:** 旁白音色候选只列能确认适用于所选型号的音色，认不出的型号照常手填 ([43ab212](https://github.com/ArcReel/ArcReel/commit/43ab212606ae0a246159344a6c54c2252d913dbc)), closes [#3858](https://github.com/ArcReel/ArcReel/issues/3858)
+* **ui:** 悬停打开的提示首次点击时保持可见 ([82bddee](https://github.com/ArcReel/ArcReel/commit/82bddee04e6ee279dc67edff1f662e16810222e2)), closes [#4002](https://github.com/ArcReel/ArcReel/issues/4002)
+* **ui:** 悬停提示点击后移出保持固定并同步受控关闭状态 ([00aceb1](https://github.com/ArcReel/ArcReel/commit/00aceb14608a5f61248ab48f45f36d014021691c)), closes [#4002](https://github.com/ArcReel/ArcReel/issues/4002)
+* **ui:** 直接打开分镜和视频单元链接时定位预览 ([22ff7ee](https://github.com/ArcReel/ArcReel/commit/22ff7ee6db3a01f528f169eef91a58b69a7bdf95)), closes [#4065](https://github.com/ArcReel/ArcReel/issues/4065)
+* **usage:** 使用记录的输入图标题改用独立的「参考图」文案，各生成入口补上来源路径回归 ([31f8db8](https://github.com/ArcReel/ArcReel/commit/31f8db84ef124af95d1b540433cbfa040292006f)), closes [#3810](https://github.com/ArcReel/ArcReel/issues/3810)
+* **usage:** 使用记录里的参考图输入在任务结束后仍能打开，标题不再显示内部角色名 ([e28489c](https://github.com/ArcReel/ArcReel/commit/e28489c65dc8d76fa614467b74e7d58bb40cb827)), closes [#3810](https://github.com/ArcReel/ArcReel/issues/3810)
+* **usage:** 在使用记录详情保留参考音频来源路径 ([6cdcf8a](https://github.com/ArcReel/ArcReel/commit/6cdcf8aa89dd31e08d1da4520aa74992095d8276)), closes [#3895](https://github.com/ArcReel/ArcReel/issues/3895)
+* **video:** 修复音轨续跑计量与尾帧准入边界 ([2c3174e](https://github.com/ArcReel/ArcReel/commit/2c3174e76851dd2f93a0f079ed09b9bf928194c7))
+* **video:** 挂尾帧时按模型时长约束预检与选档 ([2d52757](https://github.com/ArcReel/ArcReel/commit/2d52757e3f16c84af28a761ce06d5cccf67bed90)), closes [#3867](https://github.com/ArcReel/ArcReel/issues/3867)
+* **workspace:** 补全会话失效清理与参考生视频单元定位 ([2c68e3b](https://github.com/ArcReel/ArcReel/commit/2c68e3bc3dfa862dc231bc6e9a9c9ed11ad6e1d0))
+* 保留图片模型的画质与分辨率恢复入口 ([3b838d2](https://github.com/ArcReel/ArcReel/commit/3b838d24312a968705b06685f439a87ee2b74118))
+* 修复成片弹窗关闭竞态并稳定异步用例 ([#3975](https://github.com/ArcReel/ArcReel/issues/3975)) ([67cef37](https://github.com/ArcReel/ArcReel/commit/67cef373cad1cf4407e5123e442f3645e66e679f))
+* 停止分集规划后保留当窗并取消后续窗口 ([b0b345e](https://github.com/ArcReel/ArcReel/commit/b0b345eeaf3f6d3284239107bbb364ac85c530eb)), closes [#3953](https://github.com/ArcReel/ArcReel/issues/3953)
+* 单分镜提交按在途任务计入上一分镜图上限 ([7afdfa9](https://github.com/ArcReel/ArcReel/commit/7afdfa9c581b355cd60b34234ab3166d381a5af0))
+* 单分镜提交时计入计划携带的上一分镜图 ([2da1296](https://github.com/ArcReel/ArcReel/commit/2da129647d9d81174e6e6d7743b640e608ad8769)), closes [#3899](https://github.com/ArcReel/ArcReel/issues/3899)
+* 参考图超限提示与能力查询对齐规则与术语 ([0904cb8](https://github.com/ArcReel/ArcReel/commit/0904cb8e0a010f540ddedff5a25d0e5be6246872))
+* 同名资产入库冲突时提供覆盖入口 ([a6209f0](https://github.com/ArcReel/ArcReel/commit/a6209f0c2252d60c9757b82530b85e3427c1b4e6)), closes [#3956](https://github.com/ArcReel/ArcReel/issues/3956)
+* 补齐分集规划停止登记竞态复核与当窗提交保护 ([f8809a3](https://github.com/ArcReel/ArcReel/commit/f8809a353d971f43f8a3d84aff0840630eefd7dc)), closes [#3953](https://github.com/ArcReel/ArcReel/issues/3953)
+* 让官方直连的 Vidu Q3 Mix 使用专用请求规则 ([c2f81a5](https://github.com/ArcReel/ArcReel/commit/c2f81a569b5ed5a44f18d51785a6c902c4a07375)), closes [#3898](https://github.com/ArcReel/ArcReel/issues/3898)
+
+
+### 📚 文档
+
+* **adr:** 定稿 Agent profile 三方同步、宫格显式切格与自定义端点键命名空间决策 ([0ebabc1](https://github.com/ArcReel/ArcReel/commit/0ebabc1452be85cf54582d324e913d6cff580763))
+* **adr:** 定稿剪辑实时预览、项目订阅补读、Agent 会话取消域与入队乐观占用决策 ([c5b3bd9](https://github.com/ArcReel/ArcReel/commit/c5b3bd9182428b8694f0721be1c6524a751c7ef4)), closes [#3960](https://github.com/ArcReel/ArcReel/issues/3960)
+* **adr:** 定稿市场源候选索引校验与双 registry 镜像发布决策 ([0d1a0cd](https://github.com/ArcReel/ArcReel/commit/0d1a0cdc31d604f2cc260d7f3507b8313f2c5365))
+* **adr:** 明确任务活跃快照与项目资产并发占用边界 ([d52b363](https://github.com/ArcReel/ArcReel/commit/d52b363b36f89f2786c8ec9fe10201ec7b9187ae))
+* **adr:** 明确手动上传视频进入统一呈现模型、成品切回与宫格边界 ([8560d8e](https://github.com/ArcReel/ArcReel/commit/8560d8e0100acef9475c4774ae33f25c09a113c6))
+* **adr:** 明确无隔离草稿的脚本规划校验与提示词逐单元写回边界 ([b6daf7a](https://github.com/ArcReel/ArcReel/commit/b6daf7a013532cf5011c7d8bbc0b121c1d7efbc1))
+* **adr:** 明确能力来源分层、单次解析快照与视频请求事实边界 ([d5f4544](https://github.com/ArcReel/ArcReel/commit/d5f454465967e76fc142ccf9beb38a0f762cd343))
+* **adr:** 更新旁白 TTS 整体继承、旁白生成依据与目录后继推荐决策 ([4d579e6](https://github.com/ArcReel/ArcReel/commit/4d579e6feec8f790abe9dcef4bbbe13d31ed69b2))
+* **adr:** 补全演示只读闸门、会话投影与引用解析边界决策并修复契约测试 ([f54a342](https://github.com/ArcReel/ArcReel/commit/f54a342225e02fa8a4745ac47114b871b01bf324))
+* **adr:** 记录任务、费用、恢复、存储与迁移的长期决策 ([66afc83](https://github.com/ArcReel/ArcReel/commit/66afc831ef5953cfe1982794ff488baecb6d320e))
+* **guide:** 同步英文供应商指南中的模型能力说明 ([54516a0](https://github.com/ArcReel/ArcReel/commit/54516a08ed3dcd55c80d04c715ac6d2ce2a3e5d4)), closes [#3900](https://github.com/ArcReel/ArcReel/issues/3900)
+* **guide:** 补充 Agent 协议要求与外部网关接入说明 ([#3995](https://github.com/ArcReel/ArcReel/issues/3995)) ([98deda5](https://github.com/ArcReel/ArcReel/commit/98deda508aac8ed3cbc9acbb1c0835197385ebc2))
+* **guide:** 说明未匹配模型条目时的默认输入能力与画质选项 ([a60c0f6](https://github.com/ArcReel/ArcReel/commit/a60c0f6dde05f12129d4a50ba4f9628308b9b7a2)), closes [#3900](https://github.com/ArcReel/ArcReel/issues/3900)
+* **research:** 评估方舟 Agent Plan 使用限制对 ark-agent-plan 的影响 ([#3974](https://github.com/ArcReel/ArcReel/issues/3974)) ([d0e2c68](https://github.com/ArcReel/ArcReel/commit/d0e2c68c238c98b496e2272a2da8e7d9147d8d06))
+* **skills:** 发版亮点的升级提示改为列表后单列 ([#3845](https://github.com/ArcReel/ArcReel/issues/3845)) ([60e9842](https://github.com/ArcReel/ArcReel/commit/60e9842ac5529e08e4fe5ea759313378aac75850))
+* 整理创作 Agent 指令并统一产品用词 ([#3902](https://github.com/ArcReel/ArcReel/issues/3902)) ([0cf1442](https://github.com/ArcReel/ArcReel/commit/0cf1442638b5aafaeede0032ca053ee7c318a02c))
+* 更新优雅关停、Agent 停机与生成任务所有权文档与 ADR ([0601dc7](https://github.com/ArcReel/ArcReel/commit/0601dc7d78429cf031c2219f9810af7435b430ff))
+* 校准 ComfyUI 默认倍率和供应商调用结算说明 ([0399a4a](https://github.com/ArcReel/ArcReel/commit/0399a4a8de1f34e61a245579b278db46208db810))
+* 说明方舟 Agent Plan 超额后付费 ([2bb07a3](https://github.com/ArcReel/ArcReel/commit/2bb07a3a2b4ab297e38eb7726341a1a66ad3a78f)), closes [#3814](https://github.com/ArcReel/ArcReel/issues/3814)
+* 重整项目文档并同步中英文维护 ([#3903](https://github.com/ArcReel/ArcReel/issues/3903)) ([c59e22c](https://github.com/ArcReel/ArcReel/commit/c59e22cb63be123e69ae34f7fc6eaf190d264bb3))
+
 ## [0.37.0](https://github.com/ArcReel/ArcReel/compare/v0.36.0...v0.37.0) (2026-11-16)
 
 
