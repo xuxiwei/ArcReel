@@ -11,6 +11,9 @@ import jwt
 logger = logging.getLogger(__name__)
 
 _ALLOWED_ALGORITHMS = ("HS256",)
+_JWT_AUDIENCE = "arcreel-control-plane"
+_JWT_ISSUER = "arcreel-auth"
+_JWT_TYP = "access"
 
 
 class AuthBridgeError(Exception):
@@ -44,7 +47,9 @@ def verify_control_plane_token(token: str) -> dict[str, Any] | None:
             token,
             secret,
             algorithms=list(_ALLOWED_ALGORITHMS),
-            options={"require": ["exp", "iat"]},
+            audience=_JWT_AUDIENCE,
+            issuer=_JWT_ISSUER,
+            options={"require": ["exp", "iat", "aud", "iss"]},
         )
     except AuthBridgeError:
         raise
@@ -52,6 +57,9 @@ def verify_control_plane_token(token: str) -> dict[str, Any] | None:
         return None
 
     if "purpose" in payload:
+        return None
+    if payload.get("typ") != _JWT_TYP:
+        logger.warning("control-plane JWT rejected: unexpected typ")
         return None
 
     user_id = payload.get("user_id") or payload.get("sub")

@@ -33,7 +33,16 @@ def test_verify_control_plane_token_ok(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(env_name, key)
     now = int(time.time())
     token = jwt.encode(
-        {"sub": "u1", "user_id": "u1", "org_id": "o1", "iat": now, "exp": now + 3600},
+        {
+            "sub": "u1",
+            "user_id": "u1",
+            "org_id": "o1",
+            "aud": "arcreel-control-plane",
+            "iss": "arcreel-auth",
+            "typ": "access",
+            "iat": now,
+            "exp": now + 3600,
+        },
         key,
         algorithm="HS256",
     )
