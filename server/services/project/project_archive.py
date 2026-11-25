@@ -9,8 +9,8 @@ import shutil
 import stat
 import tempfile
 import zipfile
-from collections.abc import AsyncGenerator, Callable, Iterator, Mapping
-from contextlib import AbstractContextManager, asynccontextmanager, nullcontext
+from collections.abc import AsyncGenerator, Callable, Generator, Iterator, Mapping
+from contextlib import AbstractContextManager, asynccontextmanager, contextmanager, nullcontext
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
@@ -26,6 +26,7 @@ from lib.artifacts.artifact_activation import (
     snapshot_preserved_artifact_manifest,
     stage_preserved_artifact_claims,
     take_migrated_artifact_claims,
+    verified_legacy_json_claims,
 )
 from lib.artifacts.artifact_manifest import (
     ArtifactKey,
@@ -73,7 +74,7 @@ from lib.project import deleted_projects
 from lib.project.asset_types import ASSET_SPECS, asset_name_comparison_key, build_asset_entry, normalize_asset_name
 from lib.project.data_validator import DataValidator
 from lib.project.project_change_hints import emit_project_change_hint
-from lib.project.project_manager import ProjectManager
+from lib.project.project_manager import ProjectManager, project_names_lock
 from lib.project.project_migration_failure import ProjectMigrationError, migration_failure_details
 from lib.project.project_migration_report import (
     MigrationAdjustment,
@@ -751,6 +752,19 @@ class ProjectArchiveService:
                         staging_dir,
                     )
 
+                    try:
+                        preserved_manifest = (
+                            decode_artifact_manifest_payload(manifest["artifact_manifest"])
+                            if isinstance(manifest, dict) and "artifact_manifest" in manifest
+                            else None
+                        )
+                        verified_json = (
+                            verified_legacy_json_claims(staging_dir, preserved_manifest)
+                            if preserved_manifest is not None
+                            else frozenset()
+                        )
+                    except _ARTIFACT_ACTIVATION_ERRORS as exc:
+                        self._raise_artifact_activation_validation_error(ArchiveDiagnostics(), exc)
                     self._confine_version_history(staging_dir)
                     diagnostics = self._repair_project_tree(staging_dir)
                     encoding_summary = migrate_project_source_encoding(staging_dir)
@@ -761,11 +775,6 @@ class ProjectArchiveService:
                             ValidationMessage("arch_source_encoding_unconverted", {"name": failed_name}),
                         )
                     try:
-                        preserved_manifest = (
-                            decode_artifact_manifest_payload(manifest["artifact_manifest"])
-                            if isinstance(manifest, dict) and "artifact_manifest" in manifest
-                            else None
-                        )
                         staged = preserved_manifest is not None and stage_preserved_artifact_claims(
                             staging_dir, preserved_manifest
                         )
@@ -775,12 +784,14 @@ class ProjectArchiveService:
                         migrate_project_dir(staging_dir, bare_provider_models=self._bare_provider_models)
                     except Exception as exc:
                         self._raise_migration_validation_error(diagnostics, exc)
+                    self._repair_unit_mentions_tree(staging_dir, diagnostics)
                     if preserved_manifest is not None and staged:
                         try:
-                            preserved_manifest = take_migrated_artifact_claims(staging_dir, preserved_manifest)
+                            preserved_manifest = take_migrated_artifact_claims(
+                                staging_dir, preserved_manifest, verified_json=verified_json
+                            )
                         except _ARTIFACT_ACTIVATION_ERRORS as exc:
                             self._raise_artifact_activation_validation_error(diagnostics, exc)
-                    self._repair_unit_mentions_tree(staging_dir, diagnostics)
                     diagnostics.extend_validation(self.validator.validate_project_tree(staging_dir))
                     if diagnostics.blocking:
                         raise ProjectArchiveValidationError(
@@ -825,33 +836,39 @@ class ProjectArchiveService:
                         root_parts=root_parts,
                         uploaded_filename=uploaded_filename,
                     )
-                    target_name, conflict_resolution = self._resolve_conflict(
-                        target_name,
-                        project_title=str(project.get("title") or "").strip(),
-                        conflict_policy=conflict_policy,
-                    )
-
                     self._ensure_standard_subdirs(staging_dir)
-                    archived_links = self._verified_archived_links(staging_dir, manifest, target_name)
-
-                    commit = (
-                        self._formal_commit(target_name)
-                        if self._formal_commit is not None and self._has_importable_images(staging_dir)
-                        else nullcontext(None)
-                    )
-                    with commit as storage:
-                        if storage is not None:
-                            self._track_current_images(staging_dir)
-                            try:
-                                self._store_imported_images(staging_dir, storage)
-                            except RemoteSaveFailedError as exc:
-                                raise BadGatewayError("archive_import_remote_save_failed", **exc.params) from exc
-                            storage.track(self.project_manager.projects_dir / target_name)
-                        self._install_project_dir(
-                            staging_dir,
+                    with (
+                        self._prepare_project_dir(staging_dir, target_name) as prepared_dir,
+                        project_names_lock(self.project_manager.layout),
+                    ):
+                        target_name, conflict_resolution = self._resolve_conflict(
                             target_name,
-                            overwrite=(conflict_policy == "overwrite"),
+                            project_title=str(project.get("title") or "").strip(),
+                            conflict_policy=conflict_policy,
                         )
+
+                        archived_links = self._verified_archived_links(prepared_dir, manifest, target_name)
+
+                        commit = (
+                            self._formal_commit(target_name)
+                            if self._formal_commit is not None and self._has_importable_images(prepared_dir)
+                            else nullcontext(None)
+                        )
+                        with commit as storage:
+                            if storage is not None:
+                                self._track_current_images(prepared_dir)
+                                try:
+                                    self._store_imported_images(prepared_dir, storage)
+                                except RemoteSaveFailedError as exc:
+                                    raise BadGatewayError("archive_import_remote_save_failed", **exc.params) from exc
+                                storage.track(self.project_manager.projects_dir / target_name)
+                            target_dir = self.project_manager.projects_dir / target_name
+                            if conflict_resolution == "overwritten" and target_dir.exists():
+                                self._replace_project_dir(prepared_dir, target_dir)
+                            else:
+                                if conflict_resolution == "overwritten":
+                                    conflict_resolution = "none"
+                                prepared_dir.rename(target_dir)
                     self._restore_archived_links(archived_links, diagnostics)
 
                     imported_project = self.project_manager.load_project(target_name)
@@ -2536,23 +2553,13 @@ class ProjectArchiveService:
         for subdir in self.project_manager.SUBDIRS:
             (project_dir / subdir).mkdir(parents=True, exist_ok=True)
 
-    def _install_project_dir(
-        self,
-        staging_dir: Path,
-        project_name: str,
-        *,
-        overwrite: bool,
-    ) -> None:
-        target_dir = self.project_manager.projects_dir / project_name
-        prepared_dir = target_dir.with_name(f".import-staging-{target_dir.name}-{secrets.token_hex(4)}")
-
+    @contextmanager
+    def _prepare_project_dir(self, staging_dir: Path, project_name: str) -> Generator[Path]:
+        prepared_dir = self.project_manager.projects_dir / f".import-staging-{project_name}-{secrets.token_hex(4)}"
         try:
             shutil.move(str(staging_dir), str(prepared_dir))
             self.project_manager.sync_agent_profile(prepared_dir)
-            if overwrite and target_dir.exists():
-                self._replace_project_dir(prepared_dir, target_dir)
-            else:
-                prepared_dir.rename(target_dir)
+            yield prepared_dir
         finally:
             if prepared_dir.exists():
                 shutil.rmtree(prepared_dir, ignore_errors=True)  # hard-delete: temp -- 导入暂存目录

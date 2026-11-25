@@ -6,11 +6,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
+import portalocker
 import pytest
 
 from lib.artifacts.artifact_activation import activate_artifact_target_state
@@ -26,18 +29,7 @@ from lib.project.project_manager import ProjectManager, find_episode
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.project.resource_paths import resource_relative_path
 from lib.script import script_review
-from lib.script.draft_quarantine import (
-    QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
-    QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
-    QUARANTINE_KIND_PROMPT_AUTHORING,
-    QUARANTINE_KIND_SCRIPT_PLAN,
-    clear_quarantine,
-    quarantine_path,
-    write_quarantine,
-)
-from lib.script.reference_video.draft_validation import DraftViolation
 from server.agent_toolset.script_authoring import CONFIRM_SCRIPT_REVIEW, GENERATE_EPISODE_SCRIPT
-from server.draft_workflow import DraftContext, DraftWorkflow
 from server.services.project.script_review import ScriptReviewError, ScriptReviewService
 from server.tool_runtime import TextGenerationResult
 from tests.factories import make_video_request_facts, register_project_sources
@@ -315,33 +307,6 @@ class TestDramaGateFlow:
         project = pm.load_project("demo")
         assert script_review.review_status(project_path, project, 1) == "confirmed"
 
-    async def test_quarantined_script_plan_blocks_confirm_and_prompt_authoring(self, tmp_path, video_request_facts):
-        """drama 的草稿同样独立阻塞：草稿在场期间确认被拒、prompt_authoring 被阻塞，即使正式 script_plan
-        早已确认过——取回编辑时正式文件原封不动，只看指纹会放行用户尚未看过的上一版内容。"""
-        pm = _make_project(tmp_path, "drama")
-        svc = _service(pm)
-        project_path = pm.get_project_path("demo")
-        _write_script_plan(pm, "drama", _admitted_drama_script_plan())
-        await svc.confirm("demo", 1)
-        assert (await svc.get_state("demo", 1))["status"] == "confirmed"
-
-        write_quarantine(
-            project_path,
-            1,
-            QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
-            content={"title": "第一集", "scenes": []},
-            violations=[],
-        )
-
-        assert (await svc.get_state("demo", 1))["status"] == "pending_review"
-        assert script_review.review_status(project_path, pm.load_project("demo"), 1) == "pending_review"
-        with pytest.raises(ScriptReviewError) as exc:
-            await svc.confirm("demo", 1)
-        assert exc.value.code == "quarantined"
-
-        clear_quarantine(project_path, 1, QUARANTINE_KIND_DRAMA_SCRIPT_PLAN)
-        assert (await svc.get_state("demo", 1))["status"] == "confirmed"
-
     async def test_saving_confirmed_script_plan_is_rejected_without_writing(self, tmp_path, video_request_facts):
         pm = _make_project(tmp_path, "drama")
         svc = _service(pm)
@@ -357,29 +322,6 @@ class TestDramaGateFlow:
         assert exc.value.code == "script_plan_confirmed"
         assert path.read_bytes() == before
         assert (await svc.get_state("demo", 1))["status"] == "confirmed"
-
-    async def test_confirmed_script_plan_stays_read_only_while_a_rerun_draft_is_pending(
-        self, tmp_path, video_request_facts
-    ):
-        """重跑脚本规划留下待修复草稿时，正式脚本规划仍是已确认的那一份，照样不能保存。"""
-        pm = _make_project(tmp_path, "drama")
-        svc = _service(pm)
-        path = _write_script_plan(pm, "drama", _admitted_drama_script_plan())
-        await svc.confirm("demo", 1)
-        write_quarantine(
-            pm.get_project_path("demo"),
-            1,
-            QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
-            content=_admitted_drama_script_plan(),
-            violations=[DraftViolation("台词不在原文里")],
-        )
-        before = path.read_bytes()
-
-        with pytest.raises(ScriptReviewError) as exc:
-            await svc.save_content("demo", 1, _admitted_drama_script_plan())
-
-        assert exc.value.code == "script_plan_confirmed"
-        assert path.read_bytes() == before
 
     async def test_rerun_script_plan_after_confirm_repends_and_reopens_editing(self, tmp_path, video_request_facts):
         pm = _make_project(tmp_path, "drama")
@@ -486,6 +428,161 @@ def _entry_claims(entry_id: str) -> dict[ArtifactKey, ArtifactManifestEntry]:
 
 
 class TestConfirmMaterializesScript:
+    @pytest.mark.parametrize("existing_script", [False, True], ids=["create", "overwrite"])
+    async def test_rename_in_progress_rewrites_concurrently_confirmed_script(
+        self, tmp_path, video_request_facts, monkeypatch, existing_script
+    ):
+        pm = _make_project(tmp_path, "narration")
+        plan = _write_script_plan(pm, "narration", _narration_script_plan())
+        if existing_script:
+            _write_script(pm, _narration_script(_narration_script_segment("E1S01")))
+
+        plan_lock = plan.parent / f".{plan.name}.lock"
+        rename_at_plan = threading.Event()
+        confirmation_finished = threading.Event()
+        real_enter = portalocker.Lock.__enter__
+
+        def synchronize_plan_lock(lock: portalocker.Lock):
+            if Path(lock.filename) == plan_lock and not rename_at_plan.is_set():
+                rename_at_plan.set()
+                assert confirmation_finished.wait(5), "确认在改名等待规划锁时被阻塞"
+            return real_enter(lock)
+
+        monkeypatch.setattr(portalocker.Lock, "__enter__", synchronize_plan_lock)
+        rename = asyncio.create_task(asyncio.to_thread(pm.rename_asset, "demo", "characters", "裴与", "裴将军"))
+        try:
+            assert await asyncio.to_thread(rename_at_plan.wait, 5)
+            if existing_script:
+                await _confirm_over_existing_script(pm)
+            else:
+                await _service(pm).confirm("demo", 1)
+        finally:
+            confirmation_finished.set()
+            await rename
+
+        project = pm.load_project("demo")
+        assert "裴将军" in project["characters"]
+        assert "裴与" not in project["characters"]
+        assert script_review.review_status(pm.get_project_path("demo"), project, 1) == "confirmed"
+        for content in (json.loads(plan.read_text(encoding="utf-8")), _formal_script(pm)):
+            assert content["segments"][0]["characters_in_segment"] == ["裴将军"]
+
+    async def test_confirm_conflicts_without_deadlock_when_rename_holds_plan_lock(
+        self, tmp_path, video_request_facts, monkeypatch
+    ):
+        pm = _make_project(tmp_path, "narration")
+        plan = _write_script_plan(pm, "narration", _narration_script_plan())
+        _write_script(pm, _narration_script(_narration_script_segment("E1S01", characters_in_segment=["裴与"])))
+        revision = (await _service(pm).get_state("demo", 1))["script_overwrite"]["revision"]
+
+        plan_lock = plan.parent / f".{plan.name}.lock"
+        confirm_validated = threading.Event()
+        rename_holds_plan = threading.Event()
+        confirm_at_commit_plan = threading.Event()
+        rename_thread_id: int | None = None
+        real_enter = portalocker.Lock.__enter__
+        real_exit = portalocker.Lock.__exit__
+
+        def synchronize_enter(lock: portalocker.Lock):
+            if Path(lock.filename) == plan_lock:
+                if threading.get_ident() == rename_thread_id:
+                    assert confirm_validated.wait(5)
+                    handle = real_enter(lock)
+                    try:
+                        rename_holds_plan.set()
+                        assert confirm_at_commit_plan.wait(5), "确认未能在改名持规划锁时到达规划锁入口"
+                    except BaseException:
+                        lock.release()
+                        raise
+                    return handle
+                if confirm_validated.is_set():
+                    assert rename_holds_plan.wait(5)
+                    confirm_at_commit_plan.set()
+            return real_enter(lock)
+
+        def synchronize_exit(lock: portalocker.Lock, *args):
+            result = real_exit(lock, *args)
+            if (
+                Path(lock.filename) == plan_lock
+                and threading.get_ident() != rename_thread_id
+                and not confirm_validated.is_set()
+            ):
+                confirm_validated.set()
+            return result
+
+        def run_rename() -> None:
+            nonlocal rename_thread_id
+            rename_thread_id = threading.get_ident()
+            pm.rename_asset("demo", "characters", "裴与", "裴将军")
+
+        monkeypatch.setattr(portalocker.Lock, "__enter__", synchronize_enter)
+        monkeypatch.setattr(portalocker.Lock, "__exit__", synchronize_exit)
+        rename = asyncio.create_task(asyncio.to_thread(run_rename))
+        try:
+            with pytest.raises(ScriptReviewError) as exc_info:
+                await _service(pm).confirm("demo", 1, overwrite_revision=revision)
+        finally:
+            confirm_validated.set()
+            rename_holds_plan.set()
+            confirm_at_commit_plan.set()
+            await rename
+
+        assert exc_info.value.code == "conversion_conflict"
+        project = pm.load_project("demo")
+        assert "裴将军" in project["characters"]
+        assert "裴与" not in project["characters"]
+        for content in (json.loads(plan.read_text(encoding="utf-8")), _formal_script(pm)):
+            assert content["segments"][0]["characters_in_segment"] == ["裴将军"]
+
+    async def test_rename_retries_lock_set_when_new_script_lands_before_project_lock(
+        self, tmp_path, video_request_facts, monkeypatch
+    ):
+        pm = _make_project(tmp_path, "narration")
+        pm.add_episode("demo", 2, "第二集", "scripts/episode_2.json")
+        plan = _write_script_plan(pm, "narration", _narration_script_plan())
+
+        project_lock = pm.get_project_path("demo") / ".project.json.lock"
+        rename_before_project_lock = threading.Event()
+        episode2_saved = threading.Event()
+        rename_thread_id: int | None = None
+        real_enter = portalocker.Lock.__enter__
+
+        def pause_before_project_lock(lock: portalocker.Lock):
+            if (
+                threading.get_ident() == rename_thread_id
+                and Path(lock.filename) == project_lock
+                and not rename_before_project_lock.is_set()
+            ):
+                rename_before_project_lock.set()
+                assert episode2_saved.wait(5)
+            return real_enter(lock)
+
+        def run_rename() -> None:
+            nonlocal rename_thread_id
+            rename_thread_id = threading.get_ident()
+            pm.rename_asset("demo", "characters", "裴与", "裴将军")
+
+        monkeypatch.setattr(portalocker.Lock, "__enter__", pause_before_project_lock)
+        rename = asyncio.create_task(asyncio.to_thread(run_rename))
+        try:
+            assert await asyncio.to_thread(rename_before_project_lock.wait, 5)
+            ep2_script = {
+                **_narration_script(_narration_script_segment("E2S01", characters_in_segment=["裴与"])),
+                "episode": 2,
+                "title": "第二集",
+            }
+            await asyncio.to_thread(pm.save_script, "demo", ep2_script, "episode_2.json", validate=False)
+        finally:
+            episode2_saved.set()
+            await rename
+
+        project = pm.load_project("demo")
+        assert "裴将军" in project["characters"]
+        assert "裴与" not in project["characters"]
+        assert json.loads(plan.read_text(encoding="utf-8"))["segments"][0]["characters_in_segment"] == ["裴将军"]
+        ep2_path = pm.get_project_path("demo") / "scripts" / "episode_2.json"
+        assert json.loads(ep2_path.read_text(encoding="utf-8"))["segments"][0]["characters_in_segment"] == ["裴将军"]
+
     async def test_drama_confirm_writes_every_plan_entry_pending_authoring(self, tmp_path, video_request_facts):
         pm = _make_project(tmp_path, "drama")
         plan = _admitted_drama_script_plan()
@@ -816,34 +913,6 @@ class TestNarrationGateFlow:
         await svc.save_content("demo", 1, edited)
         assert (await svc.get_state("demo", 1))["status"] == "pending_review"
 
-    async def test_quarantined_script_plan_blocks_confirm_and_prompt_authoring(self, tmp_path, video_request_facts):
-        """narration 的待修复草稿与另两条路线同口径地独立阻塞：草稿在场期间确认被拒、prompt_authoring 被
-        阻塞，即使正式 script_plan 早已确认过——取回编辑时正式文件原封不动，只看指纹会放行用户尚未
-        看过的上一版内容。"""
-        pm = _make_project(tmp_path, "narration")
-        svc = _service(pm)
-        project_path = pm.get_project_path("demo")
-        _write_script_plan(pm, "narration", _narration_script_plan())
-        await svc.confirm("demo", 1)
-        assert (await svc.get_state("demo", 1))["status"] == "confirmed"
-
-        write_quarantine(
-            project_path,
-            1,
-            QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
-            content={"segments": []},
-            violations=[],
-        )
-
-        assert (await svc.get_state("demo", 1))["status"] == "pending_review"
-        assert script_review.review_status(project_path, pm.load_project("demo"), 1) == "pending_review"
-        with pytest.raises(ScriptReviewError) as exc:
-            await svc.confirm("demo", 1)
-        assert exc.value.code == "quarantined"
-
-        clear_quarantine(project_path, 1, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
-        assert (await svc.get_state("demo", 1))["status"] == "confirmed"
-
 
 class TestReferenceVideoGateFlow:
     async def test_no_script_plan_then_pending_then_confirmed(self, tmp_path, video_request_facts):
@@ -902,77 +971,6 @@ class TestReferenceVideoGateFlow:
         unit = state["content"]["units"][0]
         assert unit["text"] == edited["units"][0]["text"]
         assert "references" not in unit
-
-    async def test_quarantined_script_plan_blocks_confirm_and_prompt_authoring(self, tmp_path, video_request_facts):
-        """草稿在场 → 确认被拒、prompt_authoring 被阻塞，即使正式 script_plan 早已确认过。
-
-        待处置草稿与「正式 script_plan 的内容指纹」相互独立：重拆分违约时正式文件保持不变，只看
-        指纹会把该集判成 confirmed 并放行，用户看到的却是上一版内容。
-        """
-        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
-        svc = _service(pm)
-        project_path = pm.get_project_path("demo")
-        _write_rv_script_plan(pm, _rv_script_plan())
-        await svc.confirm("demo", 1)
-        assert (await svc.get_state("demo", 1))["status"] == "confirmed"
-
-        write_quarantine(
-            project_path,
-            1,
-            QUARANTINE_KIND_SCRIPT_PLAN,
-            content={"units": []},
-            violations=[DraftViolation("坏", code="empty_text", label="unit E1U01")],
-        )
-
-        assert (await svc.get_state("demo", 1))["status"] == "pending_review"
-        assert script_review.review_status(project_path, pm.load_project("demo"), 1) == "pending_review"
-        with pytest.raises(ScriptReviewError) as exc:
-            await svc.confirm("demo", 1)
-        assert exc.value.code == "quarantined"
-
-        clear_quarantine(project_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
-        assert (await svc.get_state("demo", 1))["status"] == "confirmed"
-
-    def test_quarantine_path_follows_the_project_variant(self, tmp_path):
-        """草稿按项目当前变体解析：三条路线各认自己的文件名。
-
-        共用一个文件名或不分变体地判，会让其他生成模式的遗留草稿被当作当前模式的待处置件——
-        那份文件没有当前写入方会清理，该集会被永久卡在阻塞态。
-        """
-        drama_pm = _make_project(tmp_path / "drama", "drama")
-        rv_pm = _make_project(tmp_path / "rv", "drama", generation_mode="reference_video")
-        narration_pm = _make_project(tmp_path / "nr", "narration")
-
-        drama_path = script_review.script_plan_quarantine_path(
-            drama_pm.get_project_path("demo"), drama_pm.load_project("demo"), 1
-        )
-        rv_path = script_review.script_plan_quarantine_path(
-            rv_pm.get_project_path("demo"), rv_pm.load_project("demo"), 1
-        )
-        narration_path = script_review.script_plan_quarantine_path(
-            narration_pm.get_project_path("demo"), narration_pm.load_project("demo"), 1
-        )
-
-        assert drama_path is not None
-        assert drama_path.name == "script_plan_normalized_script.invalid.json"
-        assert rv_path is not None
-        assert rv_path.name == "script_plan_reference_units.invalid.json"
-        assert narration_path is not None
-        assert narration_path.name == "script_plan_segments.invalid.json"
-
-    def test_quarantine_of_another_variant_does_not_block(self, tmp_path):
-        """其他生成模式的遗留草稿不参与当前模式的阻塞判定。"""
-        pm = _make_project(tmp_path, "drama")
-        project_path = pm.get_project_path("demo")
-        write_quarantine(
-            project_path,
-            1,
-            QUARANTINE_KIND_SCRIPT_PLAN,
-            content={"units": []},
-            violations=[DraftViolation("坏", code="empty_text", label="unit E1U01")],
-        )
-
-        assert script_review.script_plan_quarantined(project_path, pm.load_project("demo"), 1) is False
 
     async def test_confirm_rejects_unit_duration_out_of_range(self, tmp_path, video_request_facts):
         """损坏的 script_plan（unit 时长越界）→ 确认被结构校验拒绝，不放行 prompt_authoring。"""
@@ -1635,49 +1633,6 @@ class TestApplicability:
 
 
 class TestErrors:
-    @pytest.mark.parametrize("kind", ["drama", "narration", "reference_video"])
-    async def test_agent_draft_keeps_formal_plan_readonly_until_discarded(self, tmp_path, video_request_facts, kind):
-        pm = _make_project(
-            tmp_path,
-            "narration" if kind == "narration" else "drama",
-            generation_mode="reference_video" if kind == "reference_video" else None,
-        )
-        if kind == "reference_video":
-            content = _rv_script_plan()
-            path = _write_rv_script_plan(pm, content)
-            doc_type = "reference_script_plan"
-        else:
-            content = _admitted_drama_script_plan() if kind == "drama" else _narration_script_plan()
-            path = _write_script_plan(pm, kind, content)
-            doc_type = f"{kind}_script_plan"
-        service = _service(pm)
-        state = await service.get_state("demo", 1)
-        original = path.read_bytes()
-        workflow = DraftWorkflow(
-            DraftContext(project_name="demo", data_root=pm.data_root, pm=pm, config_resolver=service.config_resolver)
-        )
-        opened = await workflow.open(1, doc_type)
-        quarantine_kind = script_review.script_plan_quarantine_kind(pm.load_project("demo"))
-        assert quarantine_kind is not None
-        draft_path = quarantine_path(pm.get_project_path("demo"), 1, quarantine_kind)
-        original_draft = draft_path.read_bytes()
-        edited = json.loads(json.dumps(state["content"]))
-        if kind == "narration":
-            edited["segments"][0]["novel_text"] += "后来。"
-        elif kind == "drama":
-            edited["title"] = "修改后的标题"
-        else:
-            edited["units"][0]["text"] += "\n雨停了。"
-
-        with pytest.raises(ScriptReviewError) as exc:
-            await service.save_content("demo", 1, edited, state["fingerprint"])
-
-        assert exc.value.code == "draft_agent_owned"
-        assert path.read_bytes() == original
-        assert draft_path.read_bytes() == original_draft
-        await workflow.discard(1, doc_type, opened["revision"])
-        assert (await service.save_content("demo", 1, edited, state["fingerprint"]))["status"] == "pending_review"
-
     async def test_save_empty_dialogue_speaker_returns_structured_admission(self, tmp_path):
         pm = _make_project(tmp_path, "drama")
         svc = _service(pm)
@@ -1754,6 +1709,20 @@ class TestErrors:
         orphan = pm.get_project_path("demo") / "drafts" / "episode_99" / "script_plan_normalized_script.json"
         assert not orphan.exists()
 
+    async def test_save_rechecks_episode_after_resolving_capabilities(self, tmp_path, monkeypatch):
+        pm = _make_project(tmp_path, "drama")
+        svc = _service(pm)
+
+        async def delete_during_lookup(_project):
+            await asyncio.to_thread(pm.update_project, "demo", lambda project: project.update(episodes=[]))
+
+        monkeypatch.setattr(svc, "_resolve_supported_durations", delete_during_lookup)
+        with pytest.raises(ScriptReviewError) as exc:
+            await svc.save_content("demo", 1, _drama_script_plan())
+        assert exc.value.code == "episode_not_found"
+        path = pm.get_project_path("demo") / "drafts" / "episode_1" / "script_plan_normalized_script.json"
+        assert not path.exists()
+
     async def test_save_with_stale_fingerprint_conflicts_reference_video(self, tmp_path, video_request_facts):
         """rv 并发编辑：保存携带的基线指纹与盘上现值不一致（编辑期间另一方已保存）→ conflict、
         不落盘不覆盖；拿最新指纹（等价于刷新合并后）重试放行。"""
@@ -1807,27 +1776,6 @@ class TestErrors:
 
         state = await svc.save_content("demo", 1, _rv_script_plan())
         assert state["status"] == "pending_review"
-
-    async def test_rv_save_clears_stale_prompt_authoring_quarantine_on_change(self, tmp_path, video_request_facts):
-        """web 保存改了 script_plan 内容 → 在场的 prompt_authoring 草稿作废（其保结构 diff 以旧 script_plan 为
-        基底）；内容未变的保存不清。与 Agent 侧写盘同一出口、同一语义。"""
-        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
-        svc = _service(pm)
-        project_path = pm.get_project_path("demo")
-        _write_rv_script_plan(pm, _rv_script_plan())
-        await svc.save_content("demo", 1, _rv_script_plan())
-        prompt_authoring_q = quarantine_path(project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING)
-
-        write_quarantine(
-            project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING, content={"units": [{"text": "旧基底"}]}, violations=[]
-        )
-        await svc.save_content("demo", 1, _rv_script_plan())
-        assert prompt_authoring_q.exists()
-
-        edited = _rv_script_plan()
-        edited["units"][0]["text"] = "@[阿离] 转身离开。"
-        await svc.save_content("demo", 1, edited)
-        assert not prompt_authoring_q.exists()
 
     async def test_confirm_corrupt_script_plan_rejected(self, tmp_path):
         """script_plan 文件损坏（非法 JSON，但 content_fingerprint 仍产哈希）→ 确认被结构校验拒绝。"""
@@ -1885,32 +1833,6 @@ class TestScriptPlanWriteStore:
         ):
             script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 2}]}, expected_fingerprint=None)
 
-    def test_prompt_authoring_quarantine_cleared_only_on_change(self, tmp_path: Path):
-        project_path = self._project_path(tmp_path)
-        prompt_authoring_q = quarantine_path(project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING)
-        with script_review.script_plan_write_lock(project_path, 1):
-            script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 1}]})
-
-        write_quarantine(
-            project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING, content={"units": [{"text": "基底"}]}, violations=[]
-        )
-        with script_review.script_plan_write_lock(project_path, 1):
-            assert script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 1}]}) is False
-        assert prompt_authoring_q.exists()
-
-        with script_review.script_plan_write_lock(project_path, 1):
-            assert script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 2}]}) is True
-        assert not prompt_authoring_q.exists()
-
-        write_quarantine(
-            project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING, content={"units": [{"text": "基底"}]}, violations=[]
-        )
-        with script_review.script_plan_write_lock(project_path, 1):
-            script_review.write_script_plan_locked(
-                project_path, 1, {"units": [{"v": 3}]}, clear_prompt_authoring_quarantine=False
-            )
-        assert prompt_authoring_q.exists()
-
     def test_successful_noop_refreshes_active_manifest_claim(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         project_path = self._project_path(tmp_path)
         project_file = project_path / "project.json"
@@ -1951,9 +1873,6 @@ class TestScriptPlanWriteStore:
         project_path = self._project_path(tmp_path)
         with script_review.script_plan_write_lock(project_path, 1):
             script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 1}]})
-        write_quarantine(
-            project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING, content={"units": [{"text": "基底"}]}, violations=[]
-        )
         stale = datetime(2026, 3, 1, 8, 0, tzinfo=UTC)
         (project_path / ACTIVITY_FILENAME).write_text(stale.isoformat(), encoding="utf-8")
 
@@ -1967,7 +1886,6 @@ class TestScriptPlanWriteStore:
         ):
             script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 2}]})
 
-        assert quarantine_path(project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING).exists()
         assert recorded_project_activity(project_path) == stale
 
     def test_failed_commit_keeps_activity_recorded_by_other_writers(
@@ -2173,7 +2091,9 @@ class TestOwnSourceEpisodes:
         """逐集登记的自带原文的集走同一条内容确认出口。"""
         pm = _make_manual_split_project(tmp_path, "drama")
         pm.add_character("demo", "阿离", "少女")
-        assert register_project_sources(pm, "demo", own_episodes=("任意原文内容",)) == [1]
+        assert register_project_sources(
+            pm, "demo", own_episodes=(_admitted_drama_script_plan()["scenes"][0]["source_text"],)
+        ) == [1]
         _write_script_plan(pm, "drama", _admitted_drama_script_plan())
 
         confirmed = await _service(pm).confirm("demo", 1)

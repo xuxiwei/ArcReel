@@ -11,7 +11,9 @@ import pytest
 from arcreel_catalog_core import endpoint_version_floor
 from lib.backends.audio_backends import AudioCapability, AudioSynthesisRequest
 from lib.backends.backend_assembly.loaded_config import LoadedConfig
-from lib.backends.backend_assembly.specs import PROVIDER_ONLY_ENDPOINTS, builtin_model_spec, infer_builtin_endpoint
+from lib.backends.backend_assembly.specs import builtin_model_spec
+from lib.backends.builtin_endpoints import PROVIDER_ONLY_ENDPOINTS
+from lib.backends.endpoint_prefill import infer_builtin_endpoint
 from lib.backends.http_status_errors import AmbiguousSubmitError
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.generation.task_failure import render_failure
@@ -26,8 +28,11 @@ _MODEL = "grok-tts"
 
 
 def _backend(model: str | None = _MODEL):
+    from lib.video_runtime.builtin import build_builtin_backend
+
     spec = builtin_model_spec("grok", "audio", model)
-    return spec.build_backend(
+    return build_builtin_backend(
+        spec,
         LoadedConfig(credentials={"api_key": "xai-key"}, provider_meta=PROVIDER_REGISTRY["grok"], rate_limiter=None),
         model,
     )
@@ -129,6 +134,13 @@ async def test_out_of_range_speed_fails_before_any_billed_request(tmp_path: Path
         rendered = render_failure(stored, partial(translate, locale=locale), make_display_names(locale))
         assert rendered is not None
         assert all(value in rendered for value in ("0.7", "1.5", str(speed)))
+
+
+async def test_unknown_voice_is_rejected_before_submission(tmp_path: Path):
+    request = _request(tmp_path)
+    request.voice = "outside-the-grok-list"
+    with capture_http(), pytest.raises(UnprocessableError, match="narration_tts_voice_invalid"):
+        await _backend().synthesize(request)
 
 
 def test_declares_speed_and_the_official_voice_list():

@@ -6,7 +6,6 @@ Web 创建向导与 Agent 建项工具共用：TTS 配音项目省略的模型�
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 
 from lib.catalog import query as catalog
@@ -26,9 +25,6 @@ from lib.speech.narration_config import (
     parse_tts_speed,
     validate_project_narration_config,
 )
-from server.services.tasks.generation_context import audio_backend_voice_ids
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,22 +62,17 @@ def validate_tts_speed(value: float) -> float:
     return speed
 
 
-async def _voice_for_backend(resolver: ConfigResolver, provider_id: str, model_id: str, voice: str) -> str:
-    """让全局音色与项目实际使用的 TTS 模型相符。
-
-    全局音色只有一份，默认音频模型却可能按注册表顺序自动推断到另一家供应商（缺省音色 Cherry
-    只属于 DashScope）。音色不在所选内置模型的音色表中时，改用表中第一个音色。自定义供应商的
-    音色表不一定完整，音色原样保留；音色表取不到时同样原样保留，合成时照常报错。
-    """
+def _voice_for_backend(provider_id: str, model_id: str, voice: str) -> str:
     if is_custom_provider(provider_id):
         return voice
+    from lib.config.tts import builtin_audio_profile
+
     try:
-        voice_ids = await audio_backend_voice_ids(provider_id, model_id, resolver)
-    except Exception as exc:
-        logger.warning("读取音色表失败，旁白音色按全局设置预填 backend=%s/%s：%s", provider_id, model_id, exc)
+        profile = builtin_audio_profile(provider_id, model_id)
+    except ValueError:
         return voice
-    if voice_ids and voice not in voice_ids:
-        return voice_ids[0]
+    if profile.voices and (not voice or not profile.accepts_voice(voice)):
+        return profile.voices[0].id
     return voice
 
 
@@ -90,8 +81,10 @@ async def default_narration_tts(resolver: ConfigResolver) -> tuple[ProviderModel
 
     未配置任何音频供应商时抛 ValueError。
     """
-    backend, voice, speed = await resolver.default_narration_tts()
-    return backend, await _voice_for_backend(resolver, backend.provider_id, backend.model_id, voice), speed
+    from lib.video_runtime.audio import default_narration_tts as resolve_default_narration_tts
+
+    backend, voice, speed = await resolve_default_narration_tts(resolver)
+    return backend, _voice_for_backend(backend.provider_id, backend.model_id, voice), speed
 
 
 async def new_project_narration_fields(
@@ -100,21 +93,25 @@ async def new_project_narration_fields(
     resolver: ConfigResolver,
 ) -> dict[str, object]:
     """算出新项目要写入 project.json 的旁白配置字段。"""
+    from lib.video_runtime.audio import default_narration_tts as resolve_default_narration_tts
 
     fields: dict[str, object] = {NARRATION_DELIVERY_FIELD: value.delivery}
     backend = value.audio_backend if TTS_BACKEND_FIELD in value.provided else None
     voice = value.narration_voice if TTS_VOICE_FIELD in value.provided else None
     speed = value.narration_speed if TTS_SPEED_FIELD in value.provided else None
 
+    default_backend_pair: str | None = None
     if value.delivery == USE_TTS:
         omitted = {TTS_BACKEND_FIELD, TTS_VOICE_FIELD, TTS_SPEED_FIELD} - value.provided
         if omitted:
             try:
-                default_backend, default_voice, default_speed = await resolver.default_narration_tts()
+                default_backend, default_voice, default_speed = await resolve_default_narration_tts(resolver)
             except ValueError:
                 default_backend, default_voice, default_speed = None, None, None
-            if TTS_BACKEND_FIELD in omitted and default_backend is not None:
-                backend = f"{default_backend.provider_id}/{default_backend.model_id}"
+            if default_backend is not None:
+                default_backend_pair = f"{default_backend.provider_id}/{default_backend.model_id}"
+            if TTS_BACKEND_FIELD in omitted and default_backend_pair is not None:
+                backend = default_backend_pair
             if TTS_VOICE_FIELD in omitted:
                 voice = default_voice
             if TTS_SPEED_FIELD in omitted:
@@ -126,7 +123,8 @@ async def new_project_narration_fields(
         backend = fields[TTS_BACKEND_FIELD] = validate_tts_backend(backend)
         if TTS_VOICE_FIELD not in value.provided and voice is not None:
             provider_id, model_id = backend.split("/", 1)
-            voice = await _voice_for_backend(resolver, provider_id, model_id, voice)
+            switched = TTS_BACKEND_FIELD in value.provided and backend != default_backend_pair
+            voice = _voice_for_backend(provider_id, model_id, "" if switched else voice)
     if voice is not None and voice.strip():
         fields[TTS_VOICE_FIELD] = voice.strip()
     if speed is not None:

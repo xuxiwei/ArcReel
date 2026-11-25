@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import zipfile
 from collections.abc import Callable
 from dataclasses import replace
 from functools import partial
@@ -1948,7 +1949,37 @@ def _write_shared_asset_project(root: Path, *, modify: Callable[[Path], object])
     return project_dir
 
 
+def write_legacy_quarantine_project(root: Path) -> Path:
+    project_dir = write_legacy_storyboard_project(root, schema_version=5)
+    project_file = project_dir / "project.json"
+    project = json.loads(project_file.read_bytes())
+    project["characters"] = {"Alice": {"description": "A"}, "ALICE": {"description": "B"}}
+    project["metadata"] = {"updated_at": "2026-02-01T12:00:00Z"}
+    _write_json(project_file, project)
+    drafts = project_dir / "drafts" / "episode_1"
+    drafts.mkdir(parents=True, exist_ok=True)
+    for name, data in {
+        "step1_normalized_script.invalid.json": b'{"content":{"scenes":[{"characters_in_scene":["ALICE"]}]}}',
+        "step1_segments.invalid.json": b"old name conflict",
+        "script_plan_segments.invalid.json": b"corrupt\xff",
+        "step1_reference_units.invalid.json": b'{"owner":"model"}',
+        "step2_reference_script.invalid.json": b"prompt draft",
+    }.items():
+        (drafts / name).write_bytes(data)
+    return project_dir
+
+
+def _write_released_tts_project(root: Path, *, shape: str) -> Path:
+    """v15 音频和转场沿用 v0.31.0，字幕采用现行计时规则。v20 快照由 v0.37.0 渲染。"""
+    project_dir = root / shape
+    with zipfile.ZipFile(Path(__file__).parent / "fixtures" / f"{shape}.zip") as snapshot:
+        snapshot.extractall(project_dir)
+    return project_dir
+
+
 LEGACY_PROJECT_SHAPES: dict[str, Callable[[Path], Path]] = {
+    "v15-tts": partial(_write_released_tts_project, shape="v15-tts"),
+    "v20-tts-exports": partial(_write_released_tts_project, shape="v20-tts-exports"),
     "storyboard": write_legacy_storyboard_project,
     "shared-product-originals": partial(_write_shared_asset_project, modify=share_reference_files),
     "borrowed-sheet": partial(_write_shared_asset_project, modify=share_asset_sheets),
@@ -1971,6 +2002,7 @@ LEGACY_PROJECT_SHAPES: dict[str, Callable[[Path], Path]] = {
     "retired-flash-lite-aistudio": partial(write_legacy_retired_flash_lite_project, provider_id="gemini-aistudio"),
     "retired-flash-lite-vertex": partial(write_legacy_retired_flash_lite_project, provider_id="gemini-vertex"),
     "retired-model-references": write_legacy_retired_model_references_project,
+    "quarantine-drafts": write_legacy_quarantine_project,
     "bare-provider": write_legacy_bare_provider_project,
     "timeline-agent-turn": write_legacy_timeline_agent_turn_project,
     "item-id-reuse": write_legacy_item_id_reuse_project,

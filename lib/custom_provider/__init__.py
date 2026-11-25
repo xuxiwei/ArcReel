@@ -2,7 +2,9 @@
 
 import re
 
-CUSTOM_PROVIDER_PREFIX = "custom-"
+from lib.backends.providers import CUSTOM_PROVIDER_PREFIX as CUSTOM_PROVIDER_PREFIX
+from lib.backends.providers import is_custom_provider as is_custom_provider
+from lib.backends.providers import parse_provider_id as parse_provider_id
 
 CUSTOM_ENDPOINT_KEY_PREFIX = "ce-"
 
@@ -10,20 +12,6 @@ CUSTOM_ENDPOINT_KEY_PREFIX = "ce-"
 def make_provider_id(db_id: int) -> str:
     """构造自定义供应商的 provider_id 字符串，如 'custom-3'。"""
     return f"{CUSTOM_PROVIDER_PREFIX}{db_id}"
-
-
-def parse_provider_id(provider_id: str) -> int:
-    """从 'custom-3' 格式的 provider_id 提取数据库 ID。
-
-    Raises:
-        ValueError: 如果格式不正确
-    """
-    return int(provider_id.removeprefix(CUSTOM_PROVIDER_PREFIX))
-
-
-def is_custom_provider(provider_id: str) -> bool:
-    """判断是否为自定义供应商的 provider_id。"""
-    return provider_id.startswith(CUSTOM_PROVIDER_PREFIX)
 
 
 def make_endpoint_key(db_id: int) -> str:

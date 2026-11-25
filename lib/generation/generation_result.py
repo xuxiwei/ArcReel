@@ -164,6 +164,9 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "image_endpoint_mismatch_no_t2i": GenerationAction.CONFIGURE_PROVIDER,
     "image_seedream_edits_unavailable": GenerationAction.CONFIGURE_PROVIDER,
     "provider_unsupported_media": GenerationAction.CONFIGURE_PROVIDER,
+    "narration_tts_voice_invalid": GenerationAction.FIX_INPUT,
+    "narration_tts_voice_required": GenerationAction.FIX_INPUT,
+    "narration_tts_speed_invalid": GenerationAction.FIX_INPUT,
     "narration_tts_speed_out_of_range": GenerationAction.FIX_INPUT,
     "ark_agent_plan_tts_access_denied": GenerationAction.CONFIGURE_PROVIDER,
     "ark_agent_plan_tts_failed": GenerationAction.RETRY,
@@ -990,7 +993,7 @@ def record_batch_outcomes(
             task_state = GenerationTaskState.NOT_QUEUED
             dependency = (dependencies or {}).get(unit_id)
             problem = dependency_failure_problem(
-                enqueue_problem(br.error, interrupted=br.enqueue_interrupted),
+                br.enqueue_problem or enqueue_problem(br.error, interrupted=br.enqueue_interrupted),
                 dependency,
                 dependency_not_queued=dependency in not_queued_ids,
             )

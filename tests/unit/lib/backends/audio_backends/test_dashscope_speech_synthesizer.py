@@ -56,7 +56,7 @@ class _Routes(NamedTuple):
 
 @contextmanager
 def _routes(
-    *, synth: httpx.Response | None = None, synth_url: str = _SYNTH_URL, download: bytes = b"RIFFwav"
+    *, synth: httpx.Response | None = None, synth_url: str = _SYNTH_URL, download: bytes = b"audio-bytes"
 ) -> Generator[_Routes]:
     with capture_http() as router:
         synth_route = router.post(synth_url)
@@ -87,7 +87,7 @@ class TestMetadata:
 
 class TestRequest:
     async def test_posts_speech_synthesizer_body_and_downloads_audio_url(self, tmp_path: Path):
-        with _routes(download=b"RIFFbytes") as routes:
+        with _routes(download=b"audio-bytes") as routes:
             backend = DashScopeSpeechSynthesizerBackend(api_key="sk", model="qwen-audio-3.0-tts-flash", base_url=_HOST)
             result = await backend.synthesize(_request(tmp_path))
 
@@ -106,7 +106,7 @@ class TestRequest:
             },
         }
         assert str(only_request(routes.download).url) == _AUDIO_URL
-        assert (tmp_path / "o.wav").read_bytes() == b"RIFFbytes"
+        assert (tmp_path / "o.wav").read_bytes() == b"audio-bytes"
         assert result.text == "我家的后面有一个很大的花园。"
         assert result.input_tokens is None
         assert result.audio_output_tokens is None
@@ -124,13 +124,20 @@ class TestRequest:
             await DashScopeSpeechSynthesizerBackend(api_key="sk").synthesize(_request(tmp_path, name=name))
         assert request_json(only_request(routes.synthesize))["input"]["format"] == expected
 
-    @pytest.mark.parametrize(("speed", "rate"), [(1.2, 1.2), (0.3, 0.5), (3.0, 2.0)])
+    @pytest.mark.parametrize(("speed", "rate"), [(1.2, 1.2), (0.5, 0.5), (2.0, 2.0)])
     async def test_speed_is_sent_as_rate_within_range(self, tmp_path: Path, speed: float, rate: float):
         with _routes() as routes:
             await DashScopeSpeechSynthesizerBackend(api_key="sk").synthesize(_request(tmp_path, speed=speed))
         body = request_json(only_request(routes.synthesize))["input"]
         assert body["rate"] == rate
         assert "speed" not in body
+
+    @pytest.mark.parametrize("speed", [0.3, 3.0])
+    async def test_speed_outside_range_is_rejected(self, tmp_path: Path, speed: float):
+        from lib.infra.api_errors import UnprocessableError
+
+        with pytest.raises(UnprocessableError, match="narration_tts_speed_out_of_range"):
+            await DashScopeSpeechSynthesizerBackend(api_key="sk").synthesize(_request(tmp_path, speed=speed))
 
     async def test_reports_token_usage_of_31_models(self, tmp_path: Path):
         usage = {"characters": 15, "input_tokens": 12, "output_tokens": 340, "total_tokens": 352}
