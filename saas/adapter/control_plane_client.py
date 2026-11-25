@@ -20,11 +20,23 @@ class ControlPlaneError(Exception):
 
 
 def get_control_plane_base_url() -> str:
+    from urllib.parse import urlparse
+
     url = os.environ.get("CONTROL_PLANE_URL", "").strip().rstrip("/")
     if not url:
         raise ControlPlaneError(
             503,
             "CONTROL_PLANE_URL is not configured",
+        )
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    loopback = host in {"localhost", "127.0.0.1", "::1"} or host.endswith(".localhost")
+    if parsed.scheme not in {"http", "https"}:
+        raise ControlPlaneError(503, "CONTROL_PLANE_URL must use http or https")
+    if not loopback and parsed.scheme != "https":
+        raise ControlPlaneError(
+            503,
+            "CONTROL_PLANE_URL must use https outside loopback",
         )
     return url
 
