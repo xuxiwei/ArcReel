@@ -1,6 +1,6 @@
 # 进度状态
 
-最后更新：2026-11-24（联调验收 + upstream merge 演练）
+最后更新：2026-11-25（工程收口：fork 改名、JWT 同步推送、文档）
 
 ## 已完成
 
@@ -15,25 +15,24 @@
 - [x] 工作台：扣费钩子 hold/settle/release + 平台 Key 注入 + 隐藏 BYOK  
 - [x] 工作台：隔离 B（`projects/org/<org_id>/…` + OSS org/user 前缀）  
 - [x] 前端：顶栏积分余额（`GET /me/wallet` → 控制面 `/v1/me`）  
+- [x] 管理后台 Vue（用户名密码 + is_admin）  
+- [x] 审计 P0：密钥加密、计费 fail-closed、限流、CORS、AgentLint；NEW-05/06、CP-02  
+- [x] 工作台 fork：`origin=xuxiwei/ArcReel`，`upstream` 官方；分支 `saas/control-plane-p0`  
+- [x] 控制面随 `xuxiwei/ArcReelControl` 私有仓已推送  
 
 ## 进行中 / 阻塞
 
 - [x] 外置库：应用角色 DML 授权 + `alembic stamp head`  
-- [x] 工作台 `.env` 已配 `CONTROL_PLANE_ADMIN_TOKEN`  
-- [x] 已加 `upstream` remote；`origin` 仍指向官方（fork 未切）  
-- [x] 联调验收脚本 `tools/saas_e2e_acceptance.py` 通过  
-- [x] upstream merge 演练：worktree `upstream-sync` ← `upstream/main` fast-forward，无冲突；预算触点未落入本次上游 diff  
+- [x] 工作台 `.env` 已配控制面 token  
+- [x] upstream merge 已做过；可按需再 `fetch upstream && merge upstream/main`  
+- [ ] 审计 P1：NEW-02 / CP-15 / WB-04 / GD-03  
 
-## 下一步（P0）
+## 下一步
 
-1. [x] 控制面：开放注册 / 登录 / 个人组织 / JWT  
-2. [x] 控制面：管理 API（Key、汇率、grant、ledger）  
-3. [x] 控制面：hold / settle / release + ledger  
-4. [x] 工作台：`DEPLOYMENT_MODE` + 鉴权桥 + 扣费钩子 + 平台 Key  
-5. [x] 工作台：项目 + OSS 按 org 隔离  
-6. [x] 前端：SaaS 注册/登录入口 + 顶栏余额  
-7. [x] 联调验收 + upstream merge 演练  
-8. [ ] 工作台 fork：`origin` 切自有仓，`upstream` 保留官方；提交 `saas/`（已从 `.gitignore` 移除误伤）  
+1. [x] 工作台 fork + 提交推送  
+2. [x] 控制面私有远程  
+3. [ ] 审计 P1（金额上界、grant 最小权限、HTTPS、子仓 CI）  
+4. [ ] （可选）真实 PG 并发钱包测试  
 
 ## 明确不做（本期）
 
