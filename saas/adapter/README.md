@@ -6,6 +6,7 @@
 | --- | --- |
 | `mode.py` | `DEPLOYMENT_MODE`（默认 `self_hosted`） |
 | `auth_bridge.py` | 校验控制面 JWT（`user_id` + `org_id`） |
+| `local_user.py` | 把控制面 `user_id` 幂等写入本地 `users`（满足 batches/tasks FK） |
 | `control_plane_client.py` | 登录 / 注册 / me / internal credits / keys |
 | `billing_context.py` | 请求与 Worker 的 `org_id` ContextVar |
 | `credits_hook.py` | hold / settle / release + 成本→积分 |

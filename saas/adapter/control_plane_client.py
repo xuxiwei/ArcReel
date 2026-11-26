@@ -13,10 +13,17 @@ _DEFAULT_TIMEOUT = httpx.Timeout(15.0, connect=5.0)
 
 
 class ControlPlaneError(Exception):
-    def __init__(self, status_code: int, detail: str) -> None:
+    def __init__(
+        self,
+        status_code: int,
+        detail: str,
+        *,
+        retry_after: str | None = None,
+    ) -> None:
         super().__init__(detail)
         self.status_code = status_code
         self.detail = detail
+        self.retry_after = retry_after
 
 
 def get_control_plane_base_url() -> str:
@@ -115,7 +122,11 @@ async def control_plane_me(*, access_token: str) -> dict[str, Any]:
 
 def _parse_auth_response(resp: httpx.Response) -> dict[str, Any]:
     if resp.status_code >= 400:
-        raise ControlPlaneError(resp.status_code, _detail_from_response(resp))
+        raise ControlPlaneError(
+            resp.status_code,
+            _detail_from_response(resp),
+            retry_after=resp.headers.get("Retry-After"),
+        )
     try:
         data = resp.json()
     except ValueError as exc:

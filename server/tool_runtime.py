@@ -149,7 +149,7 @@ from lib.project.asset_merge import (
     AssetMergeReport,
 )
 from lib.project.asset_types import ASSET_SPECS
-from lib.project.project_manager import ProjectManager, is_reference_video_project
+from lib.project.project_manager import ProjectManager, get_project_manager, is_reference_video_project
 from lib.project.project_migration_failure import (
     MigrationFailureRecord,
     ProjectMigrationError,
@@ -3119,8 +3119,11 @@ async def execute_queued_text_task(
     if registered is not None:
         scope, services = registered
     else:
-        scope = ProjectScope(project_name=str(task["project_name"]), data_root=DataRootLayout.current().root)
-        services = services or Services.defaults(await asyncio.to_thread(ProjectManager, scope.data_root))
+        # Prefer get_project_manager() so SaaS worker billing identity maps to
+        # projects/org/<org_id>/… (raw ProjectManager(data_root) misses isolation).
+        projects = services.projects if services is not None else get_project_manager()
+        scope = ProjectScope(project_name=str(task["project_name"]), data_root=projects.data_root)
+        services = services or Services.defaults(projects)
     task_type = task["task_type"]
     if task_type == _TEXT_EPISODE_PLAN and isinstance(payload.get("replan"), str):
         outcome = await _execute_replan_window(

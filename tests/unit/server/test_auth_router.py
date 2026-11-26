@@ -96,3 +96,29 @@ class TestVerifyRoute:
             headers={"Authorization": "Bearer invalid-token"},
         )
         assert resp.status_code == 401
+
+
+class TestSaasLoginRateLimitMapping:
+    def test_saas_login_maps_cp_429_with_retry_after(self, monkeypatch):
+        """WB-06: CP rate limit must surface as 429 + Retry-After, not fake 401."""
+        from saas.adapter.control_plane_client import ControlPlaneError
+
+        monkeypatch.setenv("DEPLOYMENT_MODE", "saas")
+
+        async def _boom(*, username: str, password: str):
+            raise ControlPlaneError(429, "rate limit exceeded", retry_after="60")
+
+        app = FastAPI()
+        app.include_router(auth_router.public_router, prefix="/api/v1")
+        with (
+            patch("server.routers.auth.is_saas", return_value=True),
+            patch("server.routers.auth.control_plane_login", side_effect=_boom),
+            TestClient(app) as client,
+        ):
+            resp = client.post(
+                "/api/v1/auth/token",
+                data={"username": "anyone", "password": "whatever"},
+            )
+        assert resp.status_code == 429
+        assert resp.json()["detail"] == "rate limit exceeded"
+        assert resp.headers.get("retry-after") == "60"

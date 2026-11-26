@@ -36,7 +36,7 @@ from lib.agent.profile_manifest import VALID_CONTENT_MODES
 from lib.i18n import DEFAULT_LOCALE
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.data_root_layout import DataRootLayout
-from lib.project.project_manager import ProjectManager
+from lib.project.project_manager import ProjectManager, get_project_manager
 from server.agent_runtime.event_log import (
     EventLogService,
     EventLogStore,
@@ -97,7 +97,6 @@ class AssistantService:
         self.layout = DataRootLayout.current()
         self.data_root = self.layout.root
 
-        self.pm = ProjectManager(self.data_root)
         self.meta_store = SessionMetaStore()
         self.event_log_store = EventLogStore()
         self.session_manager = SessionManager(
@@ -931,6 +930,11 @@ class AssistantService:
         "generate-assets": "users",
         "edit-video": "scissors",
     }
+
+    @property
+    def pm(self) -> ProjectManager:
+        """Prefer request-scoped SaaS org manager when billing identity is present."""
+        return get_project_manager()
 
     def list_available_skills(self, project_name: str | None = None) -> list[dict[str, str]]:
         """List available skills."""

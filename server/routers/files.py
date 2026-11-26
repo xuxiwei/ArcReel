@@ -287,7 +287,10 @@ async def serve_project_file(
     try:
 
         def _resolve() -> tuple[ProjectManager, Path, Path, tuple[str, ...]]:
-            project_manager = get_project_manager()
+            from saas.isolation.project_scope import resolve_public_project_manager
+
+            # Public media has no Bearer; SaaS Isolation B still nests under org/.
+            project_manager = resolve_public_project_manager(get_project_manager(), project_name)
             project_dir = project_manager.get_project_path(project_name)
 
             try:

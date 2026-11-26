@@ -286,7 +286,9 @@ async def _commit_generated_plan(
     def commit() -> tuple[ScriptPlanValidation, str]:
         path = script_review.script_plan_path(project_path, project, episode)
         assert path is not None
-        pm = ProjectManager.for_project_dir(project_path)
+        # Keep the caller-provided manager (SaaS org-scoped). for_project_dir()
+        # rebuilds a flat projects/ root and misses projects/org/<org_id>/.
+        pm = projects
         if before_commit:
             before_commit()
         with script_review.formal_script_plan_lock(project_path, episode, path):

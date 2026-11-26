@@ -1,0 +1,45 @@
+{
+ "entries": [
+  {
+   "date": "2026-11-24",
+   "file": "frontend/src/i18n/en/dashboard.ts",
+   "fingerprint": "e07890bd8f88fca7a8d4d61cd7d3700c",
+   "line": 193,
+   "message": "AI provider called directly from browser code; the key is exposed to every visitor.",
+   "note": "i18n example URL string, not a browser API call",
+   "rule": "FE002",
+   "verdict": "false-positive"
+  },
+  {
+   "date": "2026-11-24",
+   "file": "frontend/src/i18n/zh/dashboard.ts",
+   "fingerprint": "6c7814aa6e41e85404a20185b4f65d4a",
+   "line": 194,
+   "message": "AI provider called directly from browser code; the key is exposed to every visitor.",
+   "note": "i18n example URL string, not a browser API call",
+   "rule": "FE002",
+   "verdict": "false-positive"
+  },
+  {
+   "date": "2026-11-24",
+   "file": "frontend/src/i18n/ru/dashboard.ts",
+   "fingerprint": "b8da9bd81a39934d21737268cd8a2f30",
+   "line": 198,
+   "message": "AI provider called directly from browser code; the key is exposed to every visitor.",
+   "note": "i18n example URL string, not a browser API call",
+   "rule": "FE002",
+   "verdict": "false-positive"
+  },
+  {
+   "date": "2026-11-24",
+   "file": "frontend/src/i18n/vi/dashboard.ts",
+   "fingerprint": "1119f707759c603549fb91df16813fbc",
+   "line": 194,
+   "message": "AI provider called directly from browser code; the key is exposed to every visitor.",
+   "note": "i18n example URL string, not a browser API call",
+   "rule": "FE002",
+   "verdict": "false-positive"
+  }
+ ],
+ "version": 1
+}

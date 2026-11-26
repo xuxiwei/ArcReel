@@ -552,6 +552,10 @@ async def get_current_user(
     from saas.adapter.mode import is_saas
 
     if is_saas() and user.org_id:
+        # Local tables FK to users.id; control-plane UUIDs must exist locally.
+        from saas.adapter.local_user import ensure_local_saas_user
+
+        await ensure_local_saas_user(user.id)
         set_billing_identity(BillingIdentity(user_id=user.id, org_id=user.org_id))
     return user
 

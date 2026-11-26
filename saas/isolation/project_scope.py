@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 
 from lib.infra.app_data_dir import app_data_dir
+from lib.infra.data_root_layout import DataRootLayout, is_project_dir
 from lib.project.project_manager import ProjectManager
 from saas.adapter.billing_context import get_billing_identity
 from saas.adapter.mode import is_saas
@@ -33,6 +35,43 @@ def resolve_project_manager(fallback: ProjectManager) -> ProjectManager:
         return _manager_for_org(identity.org_id)
     except ValueError:
         return fallback
+
+
+def _unique_org_project_dir(projects_root: Path, project_name: str) -> Path | None:
+    """Locate ``projects/org/<org_id>/<project_name>`` when the name matches exactly one org."""
+    orgs_root = projects_root / "org"
+    try:
+        org_dirs = list(orgs_root.iterdir())
+    except FileNotFoundError:
+        return None
+    matches = [candidate for org_dir in org_dirs if is_project_dir(candidate := org_dir / project_name)]
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def resolve_public_project_manager(fallback: ProjectManager, project_name: str) -> ProjectManager:
+    """Project manager for anonymous public media (``<img>`` / ``<audio>`` have no Bearer).
+
+    Authenticated SaaS requests already bind billing identity → org manager via
+    :func:`resolve_project_manager`. Public file routes do not; Isolation B still
+    stores projects under ``projects/org/<org_id>/``. Prefer the identity-scoped
+    (or flat) path, then fall back to a unique org-nested match so media URLs keep
+    working without cookies (ADR 0071).
+    """
+    manager = resolve_project_manager(fallback)
+    name = ProjectManager.normalize_project_name(project_name)
+    try:
+        manager.get_project_path(name)
+        return manager
+    except FileNotFoundError:
+        if not is_saas():
+            raise
+    projects_root = DataRootLayout(manager.data_root).projects_dir
+    located = _unique_org_project_dir(projects_root, name)
+    if located is None:
+        raise FileNotFoundError(f"项目 '{name}' 不存在")
+    return ProjectManager.for_project_dir(located)
 
 
 def reset_scoped_managers_for_tests() -> None:

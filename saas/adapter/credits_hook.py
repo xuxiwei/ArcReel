@@ -29,6 +29,14 @@ _MULTIPLIER_TTL_SEC = 60.0
 
 
 def credit_call_id(api_call_id: int) -> str:
+    """Stable idempotency key for one workbench ``api_calls`` row.
+
+    Prefixed with org so local SQLite autoincrement ids do not collide with
+    control-plane ledger rows left by other tenants or prior DB resets.
+    """
+    identity = get_billing_identity()
+    if identity is not None:
+        return f"org:{identity.org_id}:api_call:{api_call_id}"
     return f"api_call:{api_call_id}"
 
 

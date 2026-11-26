@@ -395,8 +395,23 @@ class ProjectManager:
 
     @classmethod
     def for_project_dir(cls, project_dir: str | Path) -> "ProjectManager":
-        """由一个项目目录构造其所在数据根的 ProjectManager（数据根经布局模块推导）。"""
-        return cls(DataRootLayout.for_project_dir(Path(project_dir)).root)
+        """由一个项目目录构造其所在数据根的 ProjectManager（数据根经布局模块推导）。
+
+        SaaS 路径 ``projects/org/<org_id>/<name>`` 会还原为 org 隔离的 manager，
+        避免误落到扁平 ``projects/<name>``。
+        """
+        path = Path(project_dir).resolve()
+        org_parent = path.parent.parent
+        projects_parent = org_parent.parent
+        if org_parent.name == "org" and projects_parent.name == "projects":
+            from saas.isolation.paths import TenantDataRootLayout
+
+            layout = TenantDataRootLayout(root=projects_parent.parent, org_id=path.parent.name)
+            manager = cls(layout.root)
+            manager.layout = layout
+            manager.projects_dir = layout.projects_dir
+            return manager
+        return cls(DataRootLayout.for_project_dir(path).root)
 
     def __init__(
         self,

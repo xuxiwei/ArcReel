@@ -740,6 +740,7 @@ async def upload_vertex_credential(
     file: UploadFile = File(...),
 ) -> CredentialResponse:
     """上传 Vertex AI 服务账号 JSON 凭证文件，同时创建凭证记录。"""
+    _reject_saas_byok(_t)
     try:
         contents = await file.read(MAX_VERTEX_CREDENTIALS_BYTES + 1)
     except Exception as exc:

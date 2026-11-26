@@ -25,7 +25,7 @@ from lib.project.project_change_hints import (
     register_project_change_batch_listener,
     register_project_change_listener,
 )
-from lib.project.project_manager import ProjectManager
+from lib.project.project_manager import ProjectManager, get_project_manager
 from server.services.project.project_state_projection import (
     ProjectSnapshot,
     ProjectState,
@@ -174,10 +174,11 @@ class ProjectEventService:
     ):
         """``read_state`` 缺省为 :func:`read_project_state`（经本服务的 ``pm`` 只读加载）。"""
         self.project_root = Path(project_root or PROJECT_ROOT)
-        resolved_data_root = (
+        # Keep constructor args for compatibility; path resolution uses get_project_manager()
+        # so SaaS org-scoped projects under projects/org/<org_id>/ are visible per-request.
+        self._legacy_data_root = (
             Path(data_root).resolve(strict=False) if data_root is not None else self.project_root / "projects"
         )
-        self.pm = ProjectManager(resolved_data_root)
         self._read_state: ProjectStateReader = read_state or (lambda name: read_project_state(self.pm, name))
         self.poll_interval = max(0.1, float(poll_interval))
         self._channels: dict[str, _ProjectChannel] = {}
@@ -186,6 +187,11 @@ class ProjectEventService:
         self._batch_listener_unregister = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._pending_batch_tasks: set[asyncio.Task] = set()
+
+    @property
+    def pm(self) -> ProjectManager:
+        """Prefer request-scoped SaaS org manager when billing identity is present."""
+        return get_project_manager()
 
     async def start(self) -> None:
         if self._listener_unregister is not None or self._batch_listener_unregister is not None:

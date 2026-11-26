@@ -97,14 +97,25 @@ async def login_for_access_token(
             )
         except ControlPlaneError as exc:
             logger.warning("SaaS 登录失败: %s", exc.detail)
-            status = exc.status_code if exc.status_code in {401, 403, 409, 503} else 401
+            status = exc.status_code if exc.status_code in {401, 403, 409, 429, 503} else 401
             if exc.status_code >= 500:
                 status = 503
+            headers: dict[str, str] = {}
+            if status in {401, 403}:
+                headers["WWW-Authenticate"] = "Bearer"
+            if status == 429 and exc.retry_after:
+                headers["Retry-After"] = str(exc.retry_after)
             raise HTTPException(
                 status_code=status,
                 detail=exc.detail if status != 401 else _t("unauthorized"),
-                headers={"WWW-Authenticate": "Bearer"},
+                headers=headers or None,
             ) from exc
+        from saas.adapter.auth_bridge import verify_control_plane_token
+        from saas.adapter.local_user import ensure_local_saas_user
+
+        claims = verify_control_plane_token(data["access_token"])
+        if claims and claims.get("user_id"):
+            await ensure_local_saas_user(str(claims["user_id"]), username=form_data.username)
         logger.info("SaaS 用户登录成功: %s", form_data.username)
         return TokenResponse(access_token=data["access_token"], token_type="bearer")
 
@@ -138,6 +149,12 @@ async def register_account(body: RegisterRequest, _t: Translator):
         status = exc.status_code if 400 <= exc.status_code < 500 else 503
         raise HTTPException(status_code=status, detail=exc.detail) from exc
 
+    from saas.adapter.auth_bridge import verify_control_plane_token
+    from saas.adapter.local_user import ensure_local_saas_user
+
+    claims = verify_control_plane_token(data["access_token"])
+    if claims and claims.get("user_id"):
+        await ensure_local_saas_user(str(claims["user_id"]), username=body.username)
     logger.info("SaaS 用户注册成功: %s", body.username)
     return TokenResponse(access_token=data["access_token"], token_type="bearer")
 

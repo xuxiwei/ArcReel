@@ -682,7 +682,27 @@ class SessionManager:
         return self._options_assembler.build_session_store()
 
     def _resolve_project_cwd(self, project_name: str) -> Path:
-        """Resolve and validate per-session project working directory."""
+        """Resolve and validate per-session project working directory.
+
+        In SaaS with a bound billing identity, use :func:`get_project_manager`
+        (org-scoped ``projects/org/<org_id>/``) so Agent cwd matches HTTP routes.
+        Do not fall back to the global projects dir in that case — that would
+        cross tenant trees. Otherwise keep ``self.layout.projects_dir`` (tests /
+        self-hosted / custom data roots).
+        """
+        from saas.adapter.billing_context import get_billing_identity
+        from saas.adapter.mode import is_saas
+
+        if is_saas() and get_billing_identity() is not None:
+            from lib.project.project_manager import get_project_manager
+
+            try:
+                return get_project_manager().get_project_path(project_name)
+            except ValueError as exc:
+                raise ValueError("invalid project name") from exc
+            except FileNotFoundError as exc:
+                raise FileNotFoundError(f"project not found: {project_name}") from exc
+
         try:
             project_cwd = safe_join(self.layout.projects_dir, project_name)
         except PathTraversalError as exc:

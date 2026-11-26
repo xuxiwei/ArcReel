@@ -6,6 +6,8 @@ from unittest.mock import patch
 import pytest
 
 from lib.infra.data_root_layout import DataRootLayout
+from saas.adapter.billing_context import BillingIdentity, bind_billing_identity
+from saas.isolation.paths import TenantDataRootLayout
 from server.agent_runtime.session_manager import SessionManager
 from tests.fakes import use_provider_env
 
@@ -21,6 +23,70 @@ async def _fake_provider_env():
 
 
 class TestSessionManagerProjectScope:
+    def test_resolve_project_cwd_uses_saas_org_layout(self, tmp_path, monkeypatch, meta_store):
+        """WB-09: with SaaS billing identity, cwd is under projects/org/<org_id>/."""
+        monkeypatch.setenv("DEPLOYMENT_MODE", "saas")
+        data_root = tmp_path / "data"
+        monkeypatch.setenv("ARCREEL_DATA_DIR", str(data_root))
+        from lib.infra.app_data_dir import reset_for_tests
+        from lib.project.project_manager import reset_project_manager_for_tests
+
+        reset_for_tests()
+        reset_project_manager_for_tests()
+
+        org_id = "org-wb09-test"
+        org_project = TenantDataRootLayout(root=data_root, org_id=org_id).projects_dir / "proj-saas"
+        org_project.mkdir(parents=True)
+        (org_project / "project.json").write_text("{}", encoding="utf-8")
+        # Global sibling must not be chosen when org identity is bound.
+        global_project = DataRootLayout(data_root).projects_dir / "proj-saas"
+        global_project.mkdir(parents=True)
+        (global_project / "project.json").write_text("{}", encoding="utf-8")
+
+        manager = SessionManager(
+            project_root=tmp_path,
+            meta_store=meta_store,
+            data_root=data_root,
+        )
+        with bind_billing_identity(BillingIdentity(user_id="user-1", org_id=org_id)):
+            resolved = manager._resolve_project_cwd("proj-saas")
+
+        assert resolved == org_project.resolve()
+        assert "org" in resolved.parts
+        assert org_id in resolved.parts
+        reset_project_manager_for_tests()
+        reset_for_tests()
+
+    def test_resolve_project_cwd_saas_does_not_fall_back_to_global(
+        self, tmp_path, monkeypatch, meta_store
+    ):
+        """WB-09: missing org project must not open a same-named global project."""
+        monkeypatch.setenv("DEPLOYMENT_MODE", "saas")
+        data_root = tmp_path / "data"
+        monkeypatch.setenv("ARCREEL_DATA_DIR", str(data_root))
+        from lib.infra.app_data_dir import reset_for_tests
+        from lib.project.project_manager import reset_project_manager_for_tests
+
+        reset_for_tests()
+        reset_project_manager_for_tests()
+
+        org_id = "org-wb09-empty"
+        TenantDataRootLayout(root=data_root, org_id=org_id).projects_dir.mkdir(parents=True)
+        global_project = DataRootLayout(data_root).projects_dir / "proj-only-global"
+        global_project.mkdir(parents=True)
+        (global_project / "project.json").write_text("{}", encoding="utf-8")
+
+        manager = SessionManager(
+            project_root=tmp_path,
+            meta_store=meta_store,
+            data_root=data_root,
+        )
+        with bind_billing_identity(BillingIdentity(user_id="user-1", org_id=org_id)):
+            with pytest.raises(FileNotFoundError, match="project not found"):
+                manager._resolve_project_cwd("proj-only-global")
+        reset_project_manager_for_tests()
+        reset_for_tests()
+
     @pytest.mark.asyncio
     async def test_build_options_uses_project_directory_as_cwd(self, tmp_path, monkeypatch, meta_store):
         project_dir = DataRootLayout(tmp_path / "projects").projects_dir / "demo"
