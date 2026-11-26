@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from typing import Any
 
 import jwt
@@ -74,3 +75,28 @@ def verify_control_plane_token(token: str) -> dict[str, Any] | None:
         "org_id": str(org_id),
         "sub": str(user_id),
     }
+
+
+EMBEDDED_AGENT_CLAIM = "embedded_agent"
+
+
+def mint_embedded_agent_token(identity: Any, *, expiry_seconds: int) -> str:
+    """Short-lived control-plane-format token for the Agent sandbox's own API calls.
+
+    Carries the session's user/org so billing and isolation follow the tenant, plus
+    ``embedded_agent: true`` so the workbench treats the caller as the Agent (not
+    the creator) for creator-only operations.
+    """
+    now = int(time.time())
+    payload = {
+        "sub": identity.user_id,
+        "user_id": identity.user_id,
+        "org_id": identity.org_id,
+        "aud": _JWT_AUDIENCE,
+        "iss": _JWT_ISSUER,
+        "typ": _JWT_TYP,
+        "iat": now,
+        "exp": now + int(expiry_seconds),
+        EMBEDDED_AGENT_CLAIM: True,
+    }
+    return jwt.encode(payload, get_control_plane_jwt_secret(), algorithm="HS256")

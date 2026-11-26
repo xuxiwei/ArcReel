@@ -317,6 +317,10 @@ class ManagedSession:
     agent_pricing: AgentPricing = field(default_factory=AgentPricing)
     usage_meter: TurnUsageMeter = field(default_factory=lambda: TurnUsageMeter(resumed=False))
     interrupt_requested: bool = False
+    # SaaS: who pays for this session's turns, and the credit holds opened when
+    # each user message was accepted (one per message, oldest first).
+    saas_identity: Any = None
+    saas_turn_holds: list[str] = field(default_factory=list)
     last_activity: float | None = None
     turn_outcome: SessionStatus | None = None
     last_turn_result: dict[str, Any] | None = None
@@ -546,6 +550,19 @@ def _cli_session_state(msg: dict[str, Any]) -> str | None:
     return state if isinstance(state, str) else None
 
 
+
+def _is_saas_mode() -> bool:
+    from saas.adapter.mode import is_saas
+
+    return is_saas()
+
+
+def _saas_int_env(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, "").strip() or default)
+    except ValueError:
+        return default
+
 class SessionManager:
     """Manages all active ClaudeSDKClient instances."""
 
@@ -616,7 +633,7 @@ class SessionManager:
             max_turns_provider=lambda: self.max_turns,
             resolve_project_cwd=self._resolve_project_cwd,
             session_factory_provider=lambda: getattr(self, "_session_factory", None),
-            user_id_provider=lambda: getattr(self, "_user_id", DEFAULT_USER_ID),
+            user_id_provider=self._current_user_id,
         )
 
     def configure_sandbox_runtime(self, *, in_docker: bool, sandbox_enabled: bool) -> None:
@@ -868,6 +885,7 @@ class SessionManager:
             status="running",
             project_name=project_name,
             agent_pricing=agent_pricing_of(options),
+            saas_identity=self._saas_identity_now(),
         )
         if user_entry is not None:
             managed.pending_initial_user_entry = {"entry": user_entry, "client_key": client_key}
@@ -932,6 +950,12 @@ class SessionManager:
             managed.sent_message_entries[cli_uuid] = str(user_entry["uuid"])
         managed.last_user_prompt = _content_text(content)
         managed.turn_usage_recorded = False
+
+        try:
+            await self._saas_hold_turn(managed)
+        except Exception:
+            await _cleanup_on_error()
+            raise
 
         try:
             await managed.send_query(_user_message_frame(content, cli_uuid))
@@ -1219,6 +1243,7 @@ class SessionManager:
             usage_meter=TurnUsageMeter(resumed=resumable),
             resolved_sdk_id=meta.id,
             channel=self._session_channel(meta.id),
+            saas_identity=self._saas_identity_now(),
         )
         managed.sdk_id_event.set()
         managed.entry_pipeline = self._build_entry_pipeline(managed)
@@ -1292,6 +1317,8 @@ class SessionManager:
                 user_entry = build_user_entry(
                     [{"type": "text", "text": content}] if isinstance(content, str) else content
                 )
+            # SaaS: every accepted message is gated by a credit hold (402 stops it here).
+            await self._saas_hold_turn(managed)
             queued = QueuedMessage(entry=user_entry, cli_uuid=str(uuid4()), content=content, client_key=client_key)
             managed.queued_messages.append(queued)
             if client_key is not None:
@@ -1738,9 +1765,15 @@ class SessionManager:
         result_msg: dict[str, Any],
         final_status: SessionStatus,
     ) -> None:
-        """一轮的用量：每个有用量的模型写一条供应商调用记录，按会话连接时注入的 Agent 凭证及其当时的倍率与绑定计价。"""
+        """一轮的用量：每个有用量的模型写一条供应商调用记录，按会话连接时注入的 Agent 凭证及其当时的倍率与绑定计价。
+
+        SaaS：本轮由最早的一笔预扣按实际费用结算；已并入本轮的其他消息的预扣释放，仍在排队的消息保留各自的预扣。
+        """
+        hold_ref, extra_holds = self._saas_take_turn_hold(managed)
+        await self._saas_release_holds(managed, extra_holds)
         usages = managed.usage_meter.close_turn(result_msg.get("model_usage"))
         if not usages:
+            await self._saas_release_holds(managed, [hold_ref] if hold_ref else [])
             return
 
         if final_status == "completed":
@@ -1752,20 +1785,88 @@ class SessionManager:
 
         pricing = managed.agent_pricing
         credential_id = pricing.credential_id
+        identity = managed.saas_identity
         await self.ledger.record_agent_turn(
             project_name=managed.project_name,
             session_id=managed.session_id,
             prompt=managed.last_user_prompt,
-            user_id=getattr(self, "_user_id", DEFAULT_USER_ID),
+            user_id=identity.user_id if identity is not None else getattr(self, "_user_id", DEFAULT_USER_ID),
             provider=agent_provider_id(credential_id) if credential_id is not None else PROVIDER_ANTHROPIC,
             pricing=pricing,
             status=status,
             calls=[_agent_model_call(usage) for usage in usages],
+            hold_ref=hold_ref,
+            billing_identity=identity,
         )
+
+    # ------------------------------------------------------------------ SaaS billing / identity
+
+    def _current_user_id(self) -> str:
+        """The user an Agent session acts for.
+
+        SaaS: the control-plane user bound to this request/task, so memory, the SDK
+        session store, MCP calls and usage rows are per tenant user — never the shared
+        default user. Without an identity an empty id makes per-user features fail
+        closed (``is_valid_memory_user_id("")`` is false). Self-hosted: upstream behaviour.
+        """
+        from saas.adapter.mode import is_saas
+
+        if is_saas():
+            from saas.adapter.billing_context import get_billing_identity
+
+            identity = get_billing_identity()
+            return identity.user_id if identity is not None else ""
+        return getattr(self, "_user_id", DEFAULT_USER_ID)
+
+    @staticmethod
+    def _saas_identity_now() -> Any:
+        if not _is_saas_mode():
+            return None
+        from saas.adapter.billing_context import get_billing_identity
+
+        return get_billing_identity()
+
+    async def _saas_hold_turn(self, managed: ManagedSession) -> None:
+        from saas.adapter.mode import is_saas
+
+        if not is_saas():
+            return
+        from saas.adapter.billing_context import get_billing_identity
+        from saas.adapter.credits_hook import hold_for_agent_turn
+
+        identity = get_billing_identity() or managed.saas_identity
+        managed.saas_identity = identity
+        managed.saas_turn_holds.append(await hold_for_agent_turn(session_id=managed.session_id, identity=identity))
+
+    @staticmethod
+    def _saas_take_turn_hold(managed: ManagedSession) -> tuple[str | None, list[str]]:
+        """Split holds at turn end: (pays this turn, to release now); holds of still-queued messages stay."""
+        holds = managed.saas_turn_holds
+        if not holds:
+            return None, []
+        first, rest = holds[0], holds[1:]
+        keep = min(len(rest), len(managed.queued_messages))
+        managed.saas_turn_holds = rest[len(rest) - keep :] if keep else []
+        return first, rest[: len(rest) - keep]
+
+    async def _saas_release_holds(self, managed: ManagedSession, holds: list[str] | None = None) -> None:
+        """Release the given holds, or every outstanding hold of the session when ``holds`` is None."""
+        if holds is None:
+            holds, managed.saas_turn_holds = list(managed.saas_turn_holds), []
+        if not holds:
+            return
+        from saas.adapter.credits_hook import release_agent_turn
+
+        for hold_ref in holds:
+            try:
+                await release_agent_turn(hold_ref=hold_ref, identity=managed.saas_identity)
+            except Exception:
+                logger.exception("saas agent hold release failed session_id=%s", managed.session_id)
 
     async def _mark_session_terminal(self, managed: ManagedSession, status: SessionStatus, reason: str) -> None:
         """Set terminal status on abnormal consumer exit."""
         managed.drop_queued_messages(state="queued")
+        await self._saas_release_holds(managed)
         managed.cancel_pending_questions(reason)
         managed.status = status
         managed.last_activity = time.monotonic()
@@ -1869,6 +1970,7 @@ class SessionManager:
                     )
 
             managed.drop_queued_messages()
+            await self._saas_release_holds(managed)
             if managed.resolved_sdk_id is not None:
                 if managed.status == "running":
                     managed.status = managed.turn_outcome or "interrupted"
@@ -1895,18 +1997,45 @@ class SessionManager:
             return 300
 
     async def _get_max_concurrent(self) -> int:
-        """返回最大并发会话数，默认 5。"""
+        """返回最大并发会话数：设置项优先；未设置时自托管 5，SaaS 取 ``SAAS_AGENT_MAX_SESSIONS``（默认 20）。"""
+        default = str(_saas_int_env("SAAS_AGENT_MAX_SESSIONS", 20)) if _is_saas_mode() else "5"
         try:
             async with async_session_factory() as session:
                 svc = ConfigService(session)
-                val = await svc.get_setting("agent_max_concurrent_sessions", "5")
+                val = await svc.get_setting("agent_max_concurrent_sessions", default)
             return max(int(val), 1)
         except Exception:
             logger.warning("读取 max_concurrent 配置失败，使用默认值", exc_info=True)
-            return 5
+            return int(default)
+
+    async def _ensure_user_capacity(self) -> None:
+        """SaaS：每个用户最多 ``SAAS_AGENT_SESSIONS_PER_USER``（默认 2）个会话。
+
+        超出时先淘汰该用户自己最久未活跃的空闲会话；全在运行则拒绝，
+        避免一个用户占满全平台的并发槽位。
+        """
+        identity = self._saas_identity_now()
+        if identity is None:
+            return
+        limit = max(_saas_int_env("SAAS_AGENT_SESSIONS_PER_USER", 2), 1)
+        mine = [
+            s
+            for s in self.sessions.values()
+            if s.session_id not in self._disconnecting
+            and s.saas_identity is not None
+            and s.saas_identity.user_id == identity.user_id
+        ]
+        if len(mine) < limit:
+            return
+        evictable = sorted((s for s in mine if s.status != "running"), key=lambda s: s.last_activity or 0)
+        if not evictable:
+            raise SessionCapacityError(f"你已有 {len(mine)} 个 Agent 会话在运行，请等它们完成或停止后再开新会话")
+        await self._evict_one(evictable[0])
 
     async def _ensure_capacity(self) -> None:
         """确保有空余并发槽位，必要时淘汰最久未活跃的非 running 会话。"""
+        if _is_saas_mode():
+            await self._ensure_user_capacity()
         max_concurrent = await self._get_max_concurrent()
         active = [s for s in self.sessions.values() if s.session_id not in self._disconnecting]
 

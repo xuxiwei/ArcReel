@@ -47,7 +47,9 @@ async def ensure_local_saas_user(user_id: str, *, username: str | None = None) -
     from lib.db import async_session_factory
     from lib.db.models.user import User
 
-    preferred = (username or "").strip() or f"saas:{uid}"
+    # Control-plane usernames are stored lowercase; keep the local copy identical
+    # so "Alice" and "alice" never become two local rows.
+    preferred = (username or "").strip().lower() or f"saas:{uid}"
     preferred = preferred[:64]
 
     async with async_session_factory() as session:
@@ -89,3 +91,15 @@ async def ensure_local_saas_user(user_id: str, *, username: str | None = None) -
 
     _mark_ensured(uid)
     logger.info("provisioned local SaaS user id=%s username=%s", uid, preferred)
+
+
+async def local_username(user_id: str) -> str | None:
+    """Login name stored for a SaaS user id, or None when not provisioned yet."""
+    from lib.db import async_session_factory
+    from lib.db.models.user import User
+
+    async with async_session_factory() as session:
+        user = await session.get(User, user_id)
+    if user is None or user.username.startswith("saas:"):
+        return None
+    return user.username

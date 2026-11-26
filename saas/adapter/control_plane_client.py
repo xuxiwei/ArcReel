@@ -67,17 +67,41 @@ def _client() -> httpx.AsyncClient:
     return httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT, trust_env=False)
 
 
+def _plain(value: Decimal | str) -> str:
+    """Decimal as plain digits: ``str(Decimal("1E+1"))`` is "1E+1", which is ambiguous on the wire."""
+    if isinstance(value, Decimal):
+        return format(value, "f")
+    return str(value)
+
+
 def _internal_headers() -> dict[str, str]:
     return {"X-Internal-Token": get_internal_token()}
 
 
-async def control_plane_login(*, username: str, password: str) -> dict[str, Any]:
+def _client_ip_headers(client_ip: str | None) -> dict[str, str]:
+    """Forward the browser's address so the control plane rate-limits per user, not per workbench.
+
+    The control plane honours ``X-Forwarded-For`` only alongside a valid
+    ``X-Internal-Token``; without a configured token nothing is forwarded.
+    """
+    ip = (client_ip or "").strip()
+    if not ip:
+        return {}
+    try:
+        token = get_internal_token()
+    except ControlPlaneError:
+        return {}
+    return {"X-Internal-Token": token, "X-Forwarded-For": ip}
+
+
+async def control_plane_login(*, username: str, password: str, client_ip: str | None = None) -> dict[str, Any]:
     base = get_control_plane_base_url()
     try:
         async with _client() as client:
             resp = await client.post(
                 f"{base}/v1/auth/login",
                 json={"username": username, "password": password},
+                headers=_client_ip_headers(client_ip),
             )
     except httpx.HTTPError as exc:
         raise ControlPlaneError(503, "control plane unreachable") from exc
@@ -89,6 +113,7 @@ async def control_plane_register(
     username: str,
     password: str,
     email: str | None = None,
+    client_ip: str | None = None,
 ) -> dict[str, Any]:
     base = get_control_plane_base_url()
     body: dict[str, Any] = {"username": username, "password": password}
@@ -96,7 +121,7 @@ async def control_plane_register(
         body["email"] = email
     try:
         async with _client() as client:
-            resp = await client.post(f"{base}/v1/auth/register", json=body)
+            resp = await client.post(f"{base}/v1/auth/register", json=body, headers=_client_ip_headers(client_ip))
     except httpx.HTTPError as exc:
         raise ControlPlaneError(503, "control plane unreachable") from exc
     return _parse_auth_response(resp)
@@ -175,7 +200,7 @@ async def control_plane_internal_hold(
     base = get_control_plane_base_url()
     body: dict[str, Any] = {
         "org_id": org_id,
-        "estimate_credits": str(estimate_credits),
+        "estimate_credits": _plain(estimate_credits),
     }
     if user_id:
         body["user_id"] = user_id
@@ -212,14 +237,14 @@ async def control_plane_internal_settle(
     base = get_control_plane_base_url()
     body: dict[str, Any] = {
         "org_id": org_id,
-        "actual_credits": str(actual_credits),
+        "actual_credits": _plain(actual_credits),
     }
     if hold_id:
         body["hold_id"] = hold_id
     if call_id:
         body["call_id"] = call_id
     if provider_cost_amount is not None:
-        body["provider_cost_amount"] = str(provider_cost_amount)
+        body["provider_cost_amount"] = _plain(provider_cost_amount)
         body["provider_cost_currency"] = provider_cost_currency
     if model:
         body["model"] = model
@@ -295,3 +320,54 @@ async def control_plane_internal_config(key: str) -> str:
     if not isinstance(value, str):
         raise ControlPlaneError(502, "control plane config missing value")
     return value
+
+
+async def control_plane_internal_release_by_calls(call_ids: list[str]) -> int:
+    base = get_control_plane_base_url()
+    try:
+        async with _client() as client:
+            resp = await client.post(
+                f"{base}/v1/internal/credits/release-by-call",
+                headers=_internal_headers(),
+                json={"call_ids": call_ids},
+            )
+    except httpx.HTTPError as exc:
+        raise ControlPlaneError(503, "control plane unreachable") from exc
+    return int(_parse_json_object(resp).get("released") or 0)
+
+
+async def control_plane_internal_release_stale(*, call_id_prefix: str, older_than_seconds: int) -> int:
+    base = get_control_plane_base_url()
+    try:
+        async with _client() as client:
+            resp = await client.post(
+                f"{base}/v1/internal/credits/release-stale",
+                headers=_internal_headers(),
+                json={"call_id_prefix": call_id_prefix, "older_than_seconds": older_than_seconds},
+            )
+    except httpx.HTTPError as exc:
+        raise ControlPlaneError(503, "control plane unreachable") from exc
+    return int(_parse_json_object(resp).get("released") or 0)
+
+
+async def control_plane_user_request(
+    method: str, path: str, *, access_token: str, json_body: dict[str, Any] | None = None
+) -> Any:
+    """Forward one user-scoped call (the user's own control-plane JWT) and return its JSON."""
+    base = get_control_plane_base_url()
+    try:
+        async with _client() as client:
+            resp = await client.request(
+                method,
+                f"{base}{path}",
+                headers={"Authorization": f"Bearer {access_token}"},
+                json=json_body,
+            )
+    except httpx.HTTPError as exc:
+        raise ControlPlaneError(503, "control plane unreachable") from exc
+    if resp.status_code >= 400:
+        raise ControlPlaneError(resp.status_code, _detail_from_response(resp))
+    try:
+        return resp.json()
+    except ValueError as exc:
+        raise ControlPlaneError(502, "control plane returned non-JSON") from exc

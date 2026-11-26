@@ -401,6 +401,29 @@ function agentMemoryBase(scope: AgentMemoryScope): string {
 }
 
 
+export type RechargeChannel = "wechat" | "alipay";
+
+export interface RechargeOptions {
+  currency: "CNY";
+  tiers: string[];
+  min_cny: string;
+  max_cny: string;
+  channels: RechargeChannel[];
+  credits_per_cny: string;
+}
+
+export interface RechargeOrder {
+  order_no: string;
+  channel: RechargeChannel;
+  status: "pending" | "paid" | "closed" | "refunded" | "partially_refunded";
+  amount_cny: string;
+  credits: string;
+  expires_at: string;
+  paid_at: string | null;
+  pay_url?: string | null;
+  qr_svg?: string | null;
+}
+
 class API {
   static async request<T = unknown>(
     endpoint: string,
@@ -413,9 +436,31 @@ class API {
   static async getMeWallet(options: { signal?: AbortSignal } = {}): Promise<{
     org_id: string | null;
     username: string | null;
-    wallet: { balance: string; held: string };
+    wallet: {
+      balance: string;
+      held: string;
+      currency?: string;
+      balance_cny?: string | null;
+      held_cny?: string | null;
+      credits_per_cny?: string | null;
+    };
   }> {
     return this.request("/me/wallet", { signal: options.signal });
+  }
+
+  /** SaaS 充值（人民币）：档位、金额范围、可用渠道。 */
+  static async getRechargeOptions(): Promise<RechargeOptions> {
+    return this.request("/me/recharge/options");
+  }
+
+  /** SaaS 充值：创建订单。微信返回 qr_svg / pay_url(weixin://)，支付宝返回支付页 pay_url。 */
+  static async createRechargeOrder(body: { amount_cny: string; channel: RechargeChannel }): Promise<RechargeOrder> {
+    return this.request("/me/recharge/orders", { method: "POST", body: JSON.stringify(body) });
+  }
+
+  /** SaaS 充值：订单状态（待支付时控制面会向支付平台查单）。 */
+  static async getRechargeOrder(orderNo: string, options: { signal?: AbortSignal } = {}): Promise<RechargeOrder> {
+    return this.request(`/me/recharge/orders/${encodeURIComponent(orderNo)}`, { signal: options.signal });
   }
 
   static async getSystemConfig(options: { signal?: AbortSignal } = {}): Promise<GetSystemConfigResponse> {

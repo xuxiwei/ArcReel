@@ -105,7 +105,7 @@ class TestSaasLoginRateLimitMapping:
 
         monkeypatch.setenv("DEPLOYMENT_MODE", "saas")
 
-        async def _boom(*, username: str, password: str):
+        async def _boom(*, username: str, password: str, client_ip: str | None = None):
             raise ControlPlaneError(429, "rate limit exceeded", retry_after="60")
 
         app = FastAPI()

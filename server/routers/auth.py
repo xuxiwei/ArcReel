@@ -46,8 +46,14 @@ class VerifyResponse(BaseModel):
 
 
 class WalletBalanceResponse(BaseModel):
+    """Credits plus the CNY view the control plane computes (credits ÷ cny_yuan_to_credits)."""
+
     balance: str
     held: str
+    currency: str = "CNY"
+    balance_cny: str | None = None
+    held_cny: str | None = None
+    credits_per_cny: str | None = None
 
 
 class MeWalletResponse(BaseModel):
@@ -67,6 +73,15 @@ class RegisterRequest(BaseModel):
     email: str | None = None
 
 
+def _opt_str(value: object) -> str | None:
+    return None if value is None else str(value)
+
+
+def _client_ip(request: Request) -> str | None:
+    """Browser address as uvicorn sees it (honours its trusted proxy-headers setting)."""
+    return request.client.host if request.client else None
+
+
 @public_router.get("/auth/status", response_model=AuthStatusResponse)
 async def auth_status():
     """暴露 ``AUTH_ENABLED`` 与部署模式供前端 bootstrap。
@@ -80,6 +95,7 @@ async def auth_status():
 
 @public_router.post("/auth/token", response_model=TokenResponse)
 async def login_for_access_token(
+    request: Request,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     _t: Translator,
 ):
@@ -94,6 +110,7 @@ async def login_for_access_token(
             data = await control_plane_login(
                 username=form_data.username,
                 password=form_data.password,
+                client_ip=_client_ip(request),
             )
         except ControlPlaneError as exc:
             logger.warning("SaaS 登录失败: %s", exc.detail)
@@ -133,7 +150,7 @@ async def login_for_access_token(
 
 
 @public_router.post("/auth/register", response_model=TokenResponse, status_code=201)
-async def register_account(body: RegisterRequest, _t: Translator):
+async def register_account(request: Request, body: RegisterRequest, _t: Translator):
     """SaaS 开放注册（代理控制面）。自托管返回 404。"""
     if not is_saas():
         raise HTTPException(status_code=404, detail="register is only available in saas mode")
@@ -143,6 +160,7 @@ async def register_account(body: RegisterRequest, _t: Translator):
             username=body.username,
             password=body.password,
             email=body.email,
+            client_ip=_client_ip(request),
         )
     except ControlPlaneError as exc:
         logger.warning("SaaS 注册失败: %s", exc.detail)
@@ -167,9 +185,15 @@ async def verify(
 
     使用 OAuth2 Bearer token 依赖自动提取和验证 token。
     """
+    username = current_user.sub
+    if is_saas():
+        # WB-08: ``sub`` is the control-plane user id in SaaS; return the login name.
+        from saas.adapter.local_user import local_username
+
+        username = await local_username(current_user.id) or current_user.id
     return VerifyResponse(
         valid=True,
-        username=current_user.sub,
+        username=username,
         org_id=current_user.org_id,
     )
 
@@ -207,5 +231,57 @@ async def me_wallet(request: Request, current_user: CurrentUser):
         wallet=WalletBalanceResponse(
             balance=str(wallet.get("balance", "0")),
             held=str(wallet.get("held", "0")),
+            balance_cny=_opt_str(wallet.get("balance_cny")),
+            held_cny=_opt_str(wallet.get("held_cny")),
+            credits_per_cny=_opt_str(wallet.get("credits_per_cny")),
         ),
     )
+
+
+# ---------------------------------------------------------------- SaaS recharge (CNY)
+
+
+class RechargeOrderRequest(BaseModel):
+    amount_cny: str = Field(min_length=1, max_length=16)
+    channel: Literal["wechat", "alipay"]
+
+
+async def _recharge_proxy(request: Request, method: str, path: str, body: dict | None = None):
+    if not is_saas():
+        raise HTTPException(status_code=404, detail="recharge is only available in saas mode")
+    from saas.adapter.control_plane_client import control_plane_user_request
+
+    try:
+        return await control_plane_user_request(
+            method, path, access_token=_bearer_token(request), json_body=body
+        )
+    except ControlPlaneError as exc:
+        status = exc.status_code if 400 <= exc.status_code < 500 else 503
+        raise HTTPException(status_code=status, detail=exc.detail) from exc
+
+
+@router.get("/me/recharge/options")
+async def recharge_options(request: Request, _user: CurrentUser):
+    """SaaS：充值档位、金额范围、可用渠道（人民币）。"""
+    return await _recharge_proxy(request, "GET", "/v1/pay/options")
+
+
+@router.post("/me/recharge/orders", status_code=201)
+async def recharge_create_order(request: Request, body: RechargeOrderRequest, _user: CurrentUser):
+    """SaaS：创建充值订单；微信返回二维码，支付宝返回支付页地址。"""
+    return await _recharge_proxy(
+        request, "POST", "/v1/pay/orders", {"amount_cny": body.amount_cny, "channel": body.channel}
+    )
+
+
+@router.get("/me/recharge/orders")
+async def recharge_list_orders(request: Request, _user: CurrentUser):
+    return await _recharge_proxy(request, "GET", "/v1/pay/orders")
+
+
+@router.get("/me/recharge/orders/{order_no}")
+async def recharge_get_order(order_no: str, request: Request, _user: CurrentUser):
+    """SaaS：订单状态；待支付订单由控制面向支付平台查单（无需回调也能入账）。"""
+    if not order_no.isalnum() or len(order_no) > 32:
+        raise HTTPException(status_code=404, detail="order not found")
+    return await _recharge_proxy(request, "GET", f"/v1/pay/orders/{order_no}")

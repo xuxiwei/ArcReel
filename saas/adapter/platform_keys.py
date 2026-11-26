@@ -6,6 +6,7 @@ import logging
 import time
 from typing import Any
 
+from lib.infra.api_errors import ApiError
 from saas.adapter.control_plane_client import ControlPlaneError, control_plane_platform_keys
 from saas.adapter.mode import is_saas
 
@@ -45,7 +46,9 @@ async def provider_secret_overlays() -> dict[str, dict[str, str]]:
         logger.error("platform keys fetch failed: %s", exc.detail)
         if _cache is not None:
             return _cache[1]
-        return {}
+        # Fail closed: an empty overlay would let the resolver fall back to the
+        # instance's local credential table (instance-owner or tenant-uploaded keys).
+        raise ApiError("platform_keys_unavailable", status_code=503) from exc
 
     by_provider: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
@@ -65,7 +68,9 @@ async def provider_secret_overlays() -> dict[str, dict[str, str]]:
             ),
         )
         overlay: dict[str, str] = {}
-        for item in items_sorted:
+        # Apply lowest priority first so the highest-priority capability wins
+        # any field both rows set (``update`` keeps the last writer).
+        for item in reversed(items_sorted):
             overlay.update(_row_to_overlay(item))
         if overlay:
             result[provider_id] = overlay

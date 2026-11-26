@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 import uuid
 from collections.abc import Awaitable, Callable, Collection
@@ -28,6 +29,33 @@ from lib.infra.error_params import FAILURE_MESSAGE_LIMIT
 logger = logging.getLogger(__name__)
 
 ACTIVE_TASK_STATUSES = ("queued", "running")
+
+_RUNNING_BY_USER_SQL = (
+    "(SELECT COUNT(*) FROM tasks AS user_running"
+    " WHERE user_running.status = 'running' AND user_running.user_id = tasks.user_id)"
+)
+
+
+def _saas_fairness_sql(params: dict[str, Any]) -> tuple[str, str]:
+    """SaaS：认领时按用户公平调度（自托管返回空串，行为不变）。
+
+    - 排序：在跑任务少的用户优先，同档再按排队时间；
+    - 上限：单个用户同时在跑最多 ``SAAS_TASKS_RUNNING_PER_USER``（默认 4）个，超出的
+      留在队列里，等该用户自己的任务结束再领。避免一个用户一次提交几十个视频占满全部槽位。
+    """
+    from saas.adapter.mode import is_saas
+
+    if not is_saas():
+        return "", ""
+    try:
+        cap = int(os.environ.get("SAAS_TASKS_RUNNING_PER_USER", "").strip() or 4)
+    except ValueError:
+        cap = 4
+    params["per_user_running_cap"] = max(cap, 1)
+    return (
+        f"AND {_RUNNING_BY_USER_SQL} < :per_user_running_cap",
+        f"{_RUNNING_BY_USER_SQL} ASC, ",
+    )
 ACTIVE_TASK_SNAPSHOT_LIMIT = 5000
 
 
@@ -514,6 +542,7 @@ class TaskRepository(BaseRepository):
         if owned_task_ids:
             ownership_filter = "AND tasks.task_id NOT IN :owned_ids"
             params["owned_ids"] = tuple(owned_task_ids)
+        fairness_filter, fairness_order = _saas_fairness_sql(params)
 
         raw_stmt = text(f"""
             SELECT tasks.task_id
@@ -524,11 +553,12 @@ class TaskRepository(BaseRepository):
               AND tasks.media_type = :media_type
               {provider_filter}
               {ownership_filter}
+              {fairness_filter}
               AND (
                 tasks.dependency_task_id IS NULL
                 OR dependency.status = 'succeeded'
               )
-            ORDER BY tasks.queued_at ASC
+            ORDER BY {fairness_order}tasks.queued_at ASC
             LIMIT 1
         """)
         if "providers" in params:

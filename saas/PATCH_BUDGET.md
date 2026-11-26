@@ -25,6 +25,10 @@
 | `server/routers/auth.py` | `GET /me/wallet` | 已改 |
 | `frontend/.../GlobalHeader.tsx` / `LobbyHeader.tsx` | 顶栏余额 | 已改 |
 | `server/routers/projects.py` | 列表过滤（改由路径隔离覆盖） | 无需改 |
+| `server/agent_runtime/session_manager.py` | SaaS：组织隔离 cwd（WB-09）；每条消息送达前预扣、轮次结束按实际费用结算；按会话用户而非默认用户运行；单用户会话上限 + 平台默认上限 20 | 已改 |
+| `server/agent_runtime/arcreel_mcp.py` | SaaS：MCP 走组织 ProjectManager，无身份拒绝（WB-10） | 已改 |
+| `server/auth.py` | SaaS：识别 `embedded_agent` 令牌映射为 `EMBEDDED_AGENT_SUB` | 已改 |
+| `lib/db/repositories/task_repo.py` | SaaS：`claim_next` 按用户公平调度 + 单用户在跑上限（`SAAS_TASKS_RUNNING_PER_USER`） | 已改 |
 
 ## 禁止
 

@@ -103,6 +103,29 @@ def _resolve_and_read_text(project_cwd: Path, file_path: str) -> tuple[Path, str
     return resolved, resolved.read_text(encoding="utf-8")
 
 
+def _embedded_agent_token() -> str:
+    """Bearer for the Agent's own HTTP calls back into the workbench.
+
+    Self-hosted: a local token for ``EMBEDDED_AGENT_SUB``. SaaS rejects local tokens,
+    so the token is a control-plane-format JWT for the session's user/org marked
+    ``embedded_agent``; the workbench maps it back to ``EMBEDDED_AGENT_SUB`` so
+    creator-only operations stay closed to the Agent.
+    """
+    if not is_auth_enabled():
+        return ""
+    from saas.adapter.mode import is_saas
+
+    if is_saas():
+        from saas.adapter.auth_bridge import mint_embedded_agent_token
+        from saas.adapter.billing_context import get_billing_identity
+
+        identity = get_billing_identity()
+        if identity is None:
+            return ""
+        return mint_embedded_agent_token(identity, expiry_seconds=_EMBEDDED_AGENT_TOKEN_EXPIRY_SECONDS)
+    return create_token(EMBEDDED_AGENT_SUB, expiry_seconds=_EMBEDDED_AGENT_TOKEN_EXPIRY_SECONDS)
+
+
 class OptionsAssembler:
     """把开会话时现场收集的依赖装配成 ClaudeAgentOptions。
 
@@ -143,6 +166,7 @@ class OptionsAssembler:
         self._user_id_provider = user_id_provider or (lambda: DEFAULT_USER_ID)
         self._cached_session_store: DbSessionStore | None = None
         self._session_store_resolved = False
+        self._saas_session_stores: dict[str, DbSessionStore | None] = {}
 
     async def build_provider_env_overrides(self) -> dict[str, str]:
         """DB 凭证注入入口。默认走模块级 ``load_provider_env_overrides``（现取 module
@@ -258,9 +282,27 @@ class OptionsAssembler:
         The result is cached on first call so every session shares one instance
         instead of allocating a fresh store per ``build`` invocation.
         """
+        from saas.adapter.mode import is_saas
+
+        if is_saas():
+            # One store per tenant user: a single cached store would pin every
+            # session to whichever user built the first one.
+            user_id = self._user_id_provider()
+            if user_id in self._saas_session_stores:
+                return self._saas_session_stores[user_id]
+            store = self._new_session_store(user_id)
+            self._saas_session_stores[user_id] = store
+            return store
+
         if self._cached_session_store is not None or self._session_store_resolved:
             return self._cached_session_store
 
+        store = self._new_session_store(self._user_id_provider())
+        self._cached_session_store = store
+        self._session_store_resolved = True
+        return store
+
+    def _new_session_store(self, user_id: str) -> DbSessionStore | None:
         mode = session_store_mode()
         store: DbSessionStore | None
         if mode == "off":
@@ -269,9 +311,7 @@ class OptionsAssembler:
             if not is_known_session_store_mode(mode):
                 logger.warning("Unknown ARCREEL_SDK_SESSION_STORE=%r; defaulting to db", mode)
             factory = self._session_factory_provider() or default_async_session_factory
-            store = DbSessionStore(factory, user_id=self._user_id_provider())
-        self._cached_session_store = store
-        self._session_store_resolved = True
+            store = DbSessionStore(factory, user_id=user_id)
         return store
 
     async def build(
@@ -344,11 +384,7 @@ class OptionsAssembler:
                 "ARCREEL_EMBEDDED_AGENT": "1",
                 "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS": "1",
                 "ARCREEL_API_BASE": (os.environ.get("ARCREEL_API_BASE") or "http://127.0.0.1:1241/api/v1").rstrip("/"),
-                "ARCREEL_API_TOKEN": (
-                    create_token(EMBEDDED_AGENT_SUB, expiry_seconds=_EMBEDDED_AGENT_TOKEN_EXPIRY_SECONDS)
-                    if is_auth_enabled()
-                    else ""
-                ),
+                "ARCREEL_API_TOKEN": _embedded_agent_token(),
             }
         )
         user_id = self._user_id_provider()

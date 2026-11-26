@@ -519,9 +519,12 @@ def _payload_to_user(payload: dict) -> CurrentUserInfo:
                 detail="SaaS 令牌缺少 user_id/org_id",
                 headers={"WWW-Authenticate": "Bearer"},
             )
+        # The Agent sandbox calls back with a token minted for its session's user;
+        # keep it distinguishable so ``reject_embedded_agent`` still applies.
+        sub = EMBEDDED_AGENT_SUB if payload.get("embedded_agent") is True else user_id
         return CurrentUserInfo(
             id=user_id,
-            sub=user_id,
+            sub=sub,
             role="member",
             org_id=str(org_id),
         )

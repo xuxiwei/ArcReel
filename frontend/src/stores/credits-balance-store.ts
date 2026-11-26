@@ -5,6 +5,9 @@ interface CreditsBalanceState {
   enabled: boolean;
   balance: string | null;
   held: string | null;
+  /** CNY view of the wallet (yuan); null when the control plane has no rate. */
+  balanceCny: string | null;
+  heldCny: string | null;
   loading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
@@ -17,6 +20,8 @@ export const useCreditsBalanceStore = create<CreditsBalanceState>((set) => ({
   enabled: false,
   balance: null,
   held: null,
+  balanceCny: null,
+  heldCny: null,
   loading: false,
   error: null,
 
@@ -44,6 +49,8 @@ export const useCreditsBalanceStore = create<CreditsBalanceState>((set) => ({
         enabled: true,
         balance: me.wallet.balance,
         held: me.wallet.held,
+        balanceCny: me.wallet.balance_cny ?? null,
+        heldCny: me.wallet.held_cny ?? null,
         loading: false,
         error: null,
       });
@@ -59,5 +66,6 @@ export const useCreditsBalanceStore = create<CreditsBalanceState>((set) => ({
     }
   },
 
-  reset: () => set({ enabled: false, balance: null, held: null, loading: false, error: null }),
+  reset: () =>
+    set({ enabled: false, balance: null, held: null, balanceCny: null, heldCny: null, loading: false, error: null }),
 }));

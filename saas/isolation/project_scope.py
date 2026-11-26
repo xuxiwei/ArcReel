@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from functools import lru_cache
 from pathlib import Path
 
@@ -11,6 +12,9 @@ from lib.project.project_manager import ProjectManager
 from saas.adapter.billing_context import get_billing_identity
 from saas.adapter.mode import is_saas
 from saas.isolation.paths import TenantDataRootLayout, safe_org_segment
+
+logger = logging.getLogger(__name__)
+_warned_unscoped = False
 
 
 @lru_cache(maxsize=64)
@@ -30,11 +34,20 @@ def resolve_project_manager(fallback: ProjectManager) -> ProjectManager:
         return fallback
     identity = get_billing_identity()
     if identity is None:
+        # Start-up recovery and legacy pre-SaaS data still go through the shared
+        # root; log so request paths that lost their identity are visible.
+        global _warned_unscoped
+        if not _warned_unscoped:
+            _warned_unscoped = True
+            logger.warning(
+                "saas project manager resolved without billing identity; using shared root "
+                "(logged once; anonymous public media hits this path)",
+                stack_info=True,
+            )
         return fallback
-    try:
-        return _manager_for_org(identity.org_id)
-    except ValueError:
-        return fallback
+    # An identity whose org id is not a safe path segment is a bug or an attack:
+    # never fall back to the shared root for it (raises ValueError).
+    return _manager_for_org(identity.org_id)
 
 
 def _unique_org_project_dir(projects_root: Path, project_name: str) -> Path | None:

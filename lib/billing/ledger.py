@@ -48,11 +48,14 @@ from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.usage_repo import AgentModelCall, SettlementInput, UsageRepository
 from lib.project.project_change_hints import emit_project_change_batch
+from saas.adapter.billing_context import BillingIdentity
 from saas.adapter.credits_hook import (
-    finalize_agent_turn,
-    hold_for_agent_turn,
     hold_for_api_call,
+    release_agent_turn,
     release_for_api_call,
+    release_interrupted_calls,
+    release_stale_agent_holds,
+    settle_agent_turn,
     settle_api_call_from_db,
 )
 
@@ -240,8 +243,11 @@ class Ledger:
         try:
             await hold_for_api_call(
                 api_call_id=call_id,
+                session_factory=self._session_factory,
                 task_id=task_id,
                 purpose=str(purpose or call_type),
+                call_type=str(call_type),
+                duration_seconds=duration_seconds,
                 meta={"provider": provider, "model": model},
             )
         except Exception as hold_exc:
@@ -254,12 +260,12 @@ class Ledger:
         except asyncio.CancelledError:
             if await self._finish_cancelled(call_id):
                 self._emit_recorded(project_name, call_id, CallStatus.CANCELLED)
-            await release_for_api_call(api_call_id=call_id)
+            await release_for_api_call(api_call_id=call_id, session_factory=self._session_factory)
             raise
         except Exception as exc:
             if await self._finish_failed(call_id, exc, call._text_requests):
                 self._emit_recorded(project_name, call_id, CallStatus.FAILED)
-            await release_for_api_call(api_call_id=call_id)
+            await release_for_api_call(api_call_id=call_id, session_factory=self._session_factory)
             raise
         else:
             if call._settlement is None:
@@ -273,7 +279,7 @@ class Ledger:
             except Exception as exc:
                 if await self._finish_failed(call_id, exc, call._text_requests):
                     self._emit_recorded(project_name, call_id, CallStatus.FAILED)
-                await release_for_api_call(api_call_id=call_id)
+                await release_for_api_call(api_call_id=call_id, session_factory=self._session_factory)
                 raise
             self._emit_recorded(project_name, call_id, CallStatus.SUCCESS)
             await settle_api_call_from_db(call_id, self._session_factory)
@@ -309,7 +315,7 @@ class Ledger:
             failure=None if failure is None else classify_call_failure(failure),
         )
         if affected:
-            await release_for_api_call(api_call_id=call_id)
+            await release_for_api_call(api_call_id=call_id, session_factory=self._session_factory)
         return affected
 
     async def resume_cancelled(self, *, call_id: int) -> int:
@@ -318,7 +324,7 @@ class Ledger:
             call_id=call_id, status=CallStatus.CANCELLED, settlement=SettlementInput(cost_amount=0.0)
         )
         if affected:
-            await release_for_api_call(api_call_id=call_id)
+            await release_for_api_call(api_call_id=call_id, session_factory=self._session_factory)
         return affected
 
     async def record_provider_response(self, *, call_id: int, body: object) -> None:
@@ -337,16 +343,21 @@ class Ledger:
         pricing: AgentPricing,
         status: CallStatus,
         calls: Sequence[AgentModelCall],
+        hold_ref: str | None = None,
+        billing_identity: BillingIdentity | None = None,
     ) -> None:
         """Agent 会话的一轮：每个模型写一条终态行，按会话连接时取下的 Agent 凭证倍率与条目绑定计价（docs/adr/0102）。
 
         没有用量的轮次不写。写入整体不被取消打断：取消到达时先等这一轮的行落库、事件发出，再传播取消。
+
+        SaaS：``hold_ref`` 是这一轮开始前（消息送达 CLI 前）开的预扣。写入后按这些行的实际费用结算，
+        与 ``status`` 无关——中断、失败的轮次里已完成的请求同样产生了花费；写入失败则释放预扣。
         """
         if not calls:
+            await release_agent_turn(hold_ref=hold_ref, identity=billing_identity)
             return
-        hold_ref = await hold_for_agent_turn(session_id=session_id, call_count=len(calls))
         try:
-            await self._settle(
+            call_ids = await self._settle(
                 self._write_agent_turn(
                     project_name=project_name,
                     session_id=session_id,
@@ -359,21 +370,23 @@ class Ledger:
                 )
             )
         except Exception:
-            await finalize_agent_turn(hold_ref=hold_ref, total_cost=None, currency=None, success=False)
+            await release_agent_turn(hold_ref=hold_ref, identity=billing_identity)
             raise
-        await finalize_agent_turn(
+        await settle_agent_turn(
             hold_ref=hold_ref,
-            total_cost=None,
-            currency=None,
-            success=status == CallStatus.SUCCESS,
+            call_ids=call_ids,
+            session_factory=self._session_factory,
+            identity=billing_identity,
+            session_id=session_id,
         )
 
-    async def _write_agent_turn(self, *, project_name: str, status: CallStatus, **kwargs: Any) -> None:
+    async def _write_agent_turn(self, *, project_name: str, status: CallStatus, **kwargs: Any) -> list[int]:
         async with self._session_factory() as session:
             call_ids = await UsageRepository(session).record_agent_turn(
                 project_name=project_name, status=status, **kwargs
             )
         self._publish(project_name, [build_usage_record_change(call_id, status) for call_id in call_ids])
+        return call_ids
 
     async def settle_interrupted_calls(self, *, taskless_started_before: datetime | None) -> int:
         """服务启动收口：把没有存活任务的 pending 调用行翻成终态，返回翻掉的行数。
@@ -386,6 +399,11 @@ class Ledger:
             settled = await UsageRepository(session).settle_interrupted_pending_calls(
                 taskless_started_before=taskless_started_before
             )
+        # SaaS: these calls were closed at zero cost; free their control-plane holds too.
+        await release_interrupted_calls([item.call_id for item in settled], self._session_factory)
+        if taskless_started_before is not None:
+            # Start-up only: Agent turns cut off by the previous process never settle.
+            await release_stale_agent_holds()
 
         by_project: dict[str, list[dict[str, Any]]] = {}
         for item in settled:
