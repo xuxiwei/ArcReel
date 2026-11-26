@@ -30,12 +30,12 @@ from lib.artifacts.version_manager import VERSION_CONTENT_DIGEST, VersionManager
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.artifacts.visual_artifact_provenance import build_storyboard_video_artifact_visual_basis
 from lib.project import project_trash
+from lib.project.project_migrations.legacy_audio import legacy_prepared_basis
 from lib.project.project_migrations.runner import MIGRATORS
 from lib.project.source_revision import SourceScope, compute_source_revision
 from lib.script.grid.models import GridGeneration, build_frame_chain
 from lib.script.script_review import content_fingerprint
-from lib.speech.narration_config import TtsSynthesisSettings, tts_snapshot_fields
-from lib.speech.narration_delivery import build_narration_audio_basis
+from lib.speech.narration_config import TtsSynthesisSettings, tts_group_fields
 from lib.speech.speech_artifact_provenance import (
     SelectedMediaEvidence,
     build_video_duration_basis,
@@ -502,7 +502,7 @@ def write_legacy_tts_narration_project(
         segment["generated_assets"]["narration_audio"] = audio_path
         speech = {key: value for key, value in segment.items() if key != "transition_to_next"}
         basis = ArtifactBasisDescriptor.from_basis(
-            build_narration_audio_basis(admit_script_unit("segments", speech).preparation, synthesis)
+            legacy_prepared_basis(admit_script_unit("segments", speech).preparation, synthesis)
         )
         audio = project_dir / audio_path
         audio.parent.mkdir(exist_ok=True)
@@ -531,7 +531,7 @@ def write_legacy_tts_narration_project(
     if raised_video_duration_seconds is not None:
         advance_project_schema(project_dir, to_version=13)
         project = json.loads(project_path.read_bytes())
-        project.update(tts_snapshot_fields(settings[-1]))
+        project.update(tts_group_fields(settings[-1]))
         _write_json(project_path, project)
         metadata_path = project_dir / "versions" / "versions.json"
         metadata = json.loads(metadata_path.read_bytes())
@@ -1763,6 +1763,23 @@ def without_version_content_digests(versions: dict[str, Any]) -> dict[str, Any]:
         }
         for resource_type, bucket in versions.items()
     }
+
+
+def use_legacy_history(project_dir: Path) -> None:
+    from lib.artifacts.version_manager import VersionManager
+
+    manager = VersionManager(project_dir)
+    if manager.sqlite.is_enabled():
+        if not manager.versions_file.exists():
+            manager.sqlite.export_json(manager.versions_file)
+        manager.sqlite.path.unlink()
+
+
+def read_version_history(project_dir: Path) -> dict:
+    from lib.artifacts.version_manager import VersionManager
+
+    with VersionManager(project_dir).locked_history() as history:
+        return history
 
 
 def advance_project_schema(project_dir: Path, *, to_version: int) -> None:

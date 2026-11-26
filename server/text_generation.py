@@ -17,9 +17,10 @@ from lib.artifacts.artifact_manifest import (
     ArtifactBasis,
 )
 from lib.artifacts.artifact_provenance import ScriptPlanPromptVariant, build_script_plan_request
+from lib.backends.http_status_errors import TextWaitTimeout
 from lib.backends.providers import CallPurpose
-from lib.backends.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextOutputTruncatedError, TextTaskType
 from lib.backends.text_backends.base import TextGenerationRequest as BackendTextGenerationRequest
+from lib.backends.text_backends.base import TextOutputTruncatedError, TextTaskType
 from lib.backends.text_generator import TextGenerator
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import ConfigResolver, NoAvailableProviderError
@@ -864,7 +865,6 @@ async def generate_drama_script_plan(
             BackendTextGenerationRequest(
                 prompt=prompt,
                 response_schema=schema,
-                max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
             ),
             project_name=project_name,
         )
@@ -888,7 +888,13 @@ async def generate_drama_script_plan(
             drama_script_plan_result_text(script_plan_path.relative_to(project_path), raw_scenes) + report,
             blocking_issues=violation_entries(validation.blocking_issues),
         )
-    except (TextGenerationError, TextOutputTruncatedError, ModelNotInCatalogError, NoAvailableProviderError):
+    except (
+        TextGenerationError,
+        TextWaitTimeout,
+        TextOutputTruncatedError,
+        ModelNotInCatalogError,
+        NoAvailableProviderError,
+    ):
         raise
     except VideoRequestFactsError as exc:
         raise VideoRequestFactsUnavailableError(exc.failure) from exc
@@ -1099,7 +1105,6 @@ async def generate_reference_script_plan(
             BackendTextGenerationRequest(
                 prompt=prompt,
                 response_schema=schema,
-                max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
             ),
             project_name=project_name,
         )
@@ -1134,7 +1139,13 @@ async def generate_reference_script_plan(
             + report,
             blocking_issues=violation_entries(validation.blocking_issues),
         )
-    except (TextGenerationError, TextOutputTruncatedError, ModelNotInCatalogError, NoAvailableProviderError):
+    except (
+        TextGenerationError,
+        TextWaitTimeout,
+        TextOutputTruncatedError,
+        ModelNotInCatalogError,
+        NoAvailableProviderError,
+    ):
         raise
     except VideoRequestFactsError as exc:
         raise VideoRequestFactsUnavailableError(exc.failure) from exc
@@ -1203,7 +1214,6 @@ async def generate_narration_script_plan(
             BackendTextGenerationRequest(
                 prompt=prompt,
                 response_schema=schema,
-                max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
             ),
             project_name=project_name,
         )
@@ -1233,7 +1243,13 @@ async def generate_narration_script_plan(
             narration_script_plan_result_text(script_plan_path.relative_to(project_path), raw_segments) + report,
             blocking_issues=violation_entries(validation.blocking_issues),
         )
-    except (TextGenerationError, TextOutputTruncatedError, ModelNotInCatalogError, NoAvailableProviderError):
+    except (
+        TextGenerationError,
+        TextWaitTimeout,
+        TextOutputTruncatedError,
+        ModelNotInCatalogError,
+        NoAvailableProviderError,
+    ):
         raise
     except VideoRequestFactsError as exc:
         raise VideoRequestFactsUnavailableError(exc.failure) from exc

@@ -72,6 +72,7 @@ from lib.infra.content_digest import canonical_json_digest
 from lib.infra.data_root_layout import PROJECT_FILENAME, PROJECT_NAME_PATTERN, DataRootLayout, list_project_dirs
 from lib.infra.json_io import atomic_write_bytes, atomic_write_json, load_json, load_json_or_none
 from lib.infra.path_safety import PathTraversalError, safe_join
+from lib.infra.project_write_journal import history_recovery_required, track_write
 from lib.infra.schema_guards import is_int, is_shape, is_str
 from lib.infra.validation_messages import ValidationResult, default_translate
 from lib.project.asset_rename import (
@@ -676,6 +677,9 @@ class ProjectManager:
             raise ValueError(f"非法项目名称: '{name}'") from exc
         if not project_dir.exists():
             raise FileNotFoundError(f"项目 '{name}' 不存在")
+        if history_recovery_required(project_dir):
+            with project_metadata_lock(project_dir):
+                pass
         return project_dir
 
     @staticmethod
@@ -1409,9 +1413,12 @@ class ProjectManager:
                 self._persist_script_json(real, script)
         return script
 
-    def load_script_readonly(self, project_name: str, filename: str) -> dict:
+    def load_script_readonly(self, project_name: str, filename: str, *, snapshot: bytes | None = None) -> dict:
         """Load a script with in-memory compatibility migrations but never persist them."""
         norm = self.normalize_script_filename(filename)
+        if snapshot is not None and self._script_reader is None:
+            script, _ = self._migrate_read_script(json.loads(snapshot.decode("utf-8")), norm)
+            return script
         script, _migrated = self._read_script_unlocked(project_name, norm)
         return script
 
@@ -1436,9 +1443,13 @@ class ProjectManager:
         else:
             script = self._script_reader(real)
 
+        return self._migrate_read_script(script, real.name)
+
+    @staticmethod
+    def _migrate_read_script(script: dict, filename: str) -> tuple[dict, bool]:
         migrated, warnings = migrate_script_unit_durations(script)
         for message in warnings:
-            logger.warning("剧本 %s 时长收编迁移: %s", real.name, message.render(default_translate))
+            logger.warning("剧本 %s 时长收编迁移: %s", filename, message.render(default_translate))
         return script, migrated
 
     def list_scripts(self, project_name: str) -> list[str]:
@@ -2441,8 +2452,7 @@ class ProjectManager:
         `episode_target_duration` 为单集目标时长（秒），取值区间见
         `lib.episode.episode_target_duration`；软偏好，只注入脚本规划提示词与审核面板对比，不做阻断。
 
-        `narration` 是旁白交付配置字段（交付方式与 TTS 快照，见 `lib.speech.narration_config`），
-        缺省为后期配音；TTS 配音必须带完整快照。
+        `narration` 是旁白交付配置字段（交付方式与可选的项目配音覆盖，见 `lib.speech.narration_config`）。
         """
         project_name = self.normalize_project_name(project_name)
         project_title = str(title).strip() if title is not None else ""
@@ -2529,6 +2539,11 @@ class ProjectManager:
         if resolved_mode == "ad" and grid_storyboard:
             raise ValueError("广告/短片项目不支持宫格分镜（grid_storyboard）")
 
+        from lib.artifacts.version_manager import VersionManager
+
+        versions = VersionManager(self.get_project_path(project_name))
+        if not versions.sqlite.is_enabled():
+            versions.enable_sqlite_history()
         self.save_project(project_name, project)
         return project
 
@@ -3136,6 +3151,7 @@ class ProjectManager:
             )
             for src, dst in moves:
                 if src.exists():
+                    track_write(src, dst)
                     os.replace(src, dst)
             version_manager.rename_resource(spec.bucket_key, old_key, new_clean)
             derivatives.relocate()

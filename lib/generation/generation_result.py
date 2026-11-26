@@ -245,6 +245,7 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "restart_lost_image": GenerationAction.RETRY,
     "restart_lost_audio": GenerationAction.RETRY,
     "restart_lost_text": GenerationAction.RETRY,
+    "text_wait_timeout": GenerationAction.RETRY,
     "restart_lost_render": GenerationAction.RETRY,
     "restart_lost_no_job_id": GenerationAction.RETRY,
     "restart_lost_resume_no_job_id": GenerationAction.RETRY,
@@ -275,6 +276,12 @@ def encode_generation_problem(problem: GenerationProblem) -> str:
     """Persist a typed generation problem without losing its action or params."""
 
     return _PERSISTED_GENERATION_PROBLEM_PREFIX + problem.model_dump_json()
+
+
+class QueuedGenerationError(RuntimeError):
+    def __init__(self, problem: GenerationProblem):
+        super().__init__(encode_generation_problem(problem))
+        self.code = problem.code
 
 
 def decode_generation_problem(error_message: str | None) -> GenerationProblem | None:
@@ -1137,6 +1144,7 @@ __all__ = [
     "GenerationTaskState",
     "GenerationWarning",
     "ProviderCheckpoint",
+    "QueuedGenerationError",
     "artifact_is_reusable",
     "artifact_state_problem",
     "decode_generation_problem",

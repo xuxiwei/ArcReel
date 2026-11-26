@@ -22,17 +22,24 @@ from server.tool_runtime import CallerContext, ProjectScope, Services
 def _resolve_mcp_projects(data_root: Path) -> ProjectManager:
     """Resolve the ProjectManager used by the session MCP tool surface.
 
-    In SaaS with a bound billing identity, use :func:`get_project_manager`
-    (org-scoped ``projects/org/<org_id>/``) so MCP tools match Agent cwd and
-    HTTP routes. Otherwise keep ``ProjectManager(data_root)`` for tests /
-    self-hosted / custom data roots.
+    Self-hosted (upstream): reuse the :func:`get_project_manager` singleton when it
+    serves ``data_root``, otherwise build one for that root (tests / custom roots).
+
+    SaaS: the tools must see the org-scoped tree ``projects/org/<org_id>/`` that the
+    Agent cwd and HTTP routes use. Without a bound billing identity there is no
+    tenant to scope to, so refuse instead of falling back to the shared root.
     """
     from saas.adapter.billing_context import get_billing_identity
     from saas.adapter.mode import is_saas
 
-    if is_saas() and get_billing_identity() is not None:
+    if is_saas():
+        if get_billing_identity() is None:
+            raise RuntimeError("SaaS MCP server requires a bound billing identity")
         return get_project_manager()
-    return ProjectManager(data_root)
+    projects = get_project_manager()
+    if projects.data_root.resolve() != data_root.resolve():
+        projects = ProjectManager(data_root)
+    return projects
 
 
 def build_arcreel_mcp_server(
