@@ -770,6 +770,22 @@ export default {
 
   'save_failed': 'Lưu thất bại: {{message}}',
 
+  'credits_balance_aria': 'Số dư {{balance}}, đang tạm giữ {{held}}',
+  'credits_balance_tooltip': 'Khả dụng {{balance}} ({{credits}} tín dụng) · Tạm giữ {{held}}',
+  'recharge_title': 'Nạp tiền',
+  'recharge_desc': '¥1 = {{rate}} tín dụng. Số tiền tính bằng nhân dân tệ (CNY).',
+  'recharge_custom': 'Số tiền tùy chọn (¥{{min}}–¥{{max}})',
+  'recharge_credits_preview': 'Bạn sẽ nhận {{credits}} tín dụng',
+  'recharge_channel_wechat': 'WeChat Pay',
+  'recharge_channel_alipay': 'Alipay',
+  'recharge_pay': 'Thanh toán {{amount}}',
+  'recharge_no_channel': 'Chưa hỗ trợ thanh toán trực tuyến. Vui lòng liên hệ quản trị viên để nạp tiền.',
+  'recharge_waiting': 'Thanh toán {{amount}} bằng {{channel}}',
+  'recharge_open_alipay': 'Mở trang thanh toán Alipay',
+  'recharge_polling': 'Đang chờ xác nhận thanh toán…',
+  'recharge_paid': 'Đã thanh toán {{amount}}, đã cộng {{credits}} tín dụng',
+  'recharge_closed': 'Đơn hàng đã hết hạn. Vui lòng tạo đơn mới.',
+
   'usage_entry_aria': 'Nhật ký sử dụng · chi phí tham khảo {{cost}}',
   'usage_entry_aria_active': 'Nhật ký sử dụng · chi phí tham khảo {{cost}} · {{count}} tác vụ đang chạy',
   'usage_close_panel': 'Đóng bảng nhật ký sử dụng',

@@ -795,6 +795,22 @@ export default {
 
   'save_failed': 'Не удалось сохранить: {{message}}',
 
+  'credits_balance_aria': 'Баланс {{balance}}, заморожено {{held}}',
+  'credits_balance_tooltip': 'Доступно {{balance}} ({{credits}} кредитов) · Заморожено {{held}}',
+  'recharge_title': 'Пополнение',
+  'recharge_desc': '¥1 = {{rate}} кредитов. Суммы указаны в юанях (CNY).',
+  'recharge_custom': 'Своя сумма (¥{{min}}–¥{{max}})',
+  'recharge_credits_preview': 'Вы получите {{credits}} кредитов',
+  'recharge_channel_wechat': 'WeChat Pay',
+  'recharge_channel_alipay': 'Alipay',
+  'recharge_pay': 'Оплатить {{amount}}',
+  'recharge_no_channel': 'Онлайн-оплата пока недоступна. Обратитесь к администратору для пополнения.',
+  'recharge_waiting': 'Оплатите {{amount}} через {{channel}}',
+  'recharge_open_alipay': 'Открыть страницу оплаты Alipay',
+  'recharge_polling': 'Ожидаем подтверждение оплаты…',
+  'recharge_paid': 'Оплачено {{amount}}, начислено {{credits}} кредитов',
+  'recharge_closed': 'Срок действия заказа истёк. Создайте новый.',
+
   'usage_entry_aria': 'Записи расхода · справочная стоимость {{cost}}',
   'usage_entry_aria_active': 'Записи расхода · справочная стоимость {{cost}} · задач в работе: {{count}}',
   'usage_close_panel': 'Закрыть панель записей расхода',
