@@ -23,6 +23,10 @@ PUBLIC_OPERATIONS = frozenset(
         "POST /api/v1/auth/token",
         "GET /api/v1/files/{project_name}/{path}",
         "GET /api/v1/global-assets/{asset_type}/{filename}",
+        # SaaS: self-service sign-up (forwarded to the control plane; 404 when self-hosted).
+        "POST /api/v1/auth/register",
+        # Clears the media cookie only; safe without a token.
+        "POST /api/v1/auth/logout",
     }
 )
 
@@ -131,6 +135,8 @@ def test_public_endpoints_stay_reachable(auth_coverage_client):
     )
     assert auth_coverage_client.get("/api/v1/files/demo/x.png").status_code != 401
     assert auth_coverage_client.get("/api/v1/global-assets/characters/x.png").status_code != 401
+    assert auth_coverage_client.post("/api/v1/auth/register", json={}).status_code != 401
+    assert auth_coverage_client.post("/api/v1/auth/logout").status_code == 204
 
 
 def _login_token(client: TestClient) -> str:

@@ -27,12 +27,15 @@ class GlobalImageColumns:
 class Asset(GlobalImageColumns, TimestampMixin, Base):
     __tablename__ = "assets"
     __table_args__ = (
-        UniqueConstraint("type", "name", name="uq_asset_type_name"),
+        # SaaS PATCH: names are unique inside an organisation ("" when self-hosted), see saas/isolation/asset_scope.py
+        UniqueConstraint("org_id", "type", "name", name="uq_asset_org_type_name"),
+        Index("ix_asset_org_id", "org_id"),
         Index("ix_asset_type", "type"),
         Index("ix_asset_name", "name"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    org_id: Mapped[str] = mapped_column(String(64), nullable=False, default="", server_default="")
     type: Mapped[str] = mapped_column(String(32), nullable=False)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)

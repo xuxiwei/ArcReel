@@ -2583,6 +2583,11 @@ class ProjectArchiveService:
         conflict_policy: str,
     ) -> tuple[str, str]:
         target_dir = self.project_manager.projects_dir / preferred_name
+        from saas.isolation.project_names import name_taken_elsewhere  # SaaS PATCH: names unique across orgs
+
+        if name_taken_elsewhere(self.project_manager.layout, preferred_name):
+            # Another organisation's project: never prompt about it or overwrite it, just rename.
+            return self.project_manager.generate_project_name(project_title or preferred_name), "renamed"
         if conflict_policy == "prompt":
             if target_dir.exists():
                 raise ProjectArchiveValidationError(

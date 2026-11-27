@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import os
 from decimal import Decimal
 from typing import Any
 
 import httpx
+
+from saas.adapter import secret_env
 
 
 _DEFAULT_TIMEOUT = httpx.Timeout(15.0, connect=5.0)
@@ -29,7 +30,7 @@ class ControlPlaneError(Exception):
 def get_control_plane_base_url() -> str:
     from urllib.parse import urlparse
 
-    url = os.environ.get("CONTROL_PLANE_URL", "").strip().rstrip("/")
+    url = secret_env.get("CONTROL_PLANE_URL").rstrip("/")
     if not url:
         raise ControlPlaneError(
             503,
@@ -50,8 +51,8 @@ def get_control_plane_base_url() -> str:
 
 def get_internal_token() -> str:
     token = (
-        os.environ.get("CONTROL_PLANE_INTERNAL_TOKEN", "").strip()
-        or os.environ.get("CONTROL_PLANE_ADMIN_TOKEN", "").strip()
+        secret_env.get("CONTROL_PLANE_INTERNAL_TOKEN")
+        or secret_env.get("CONTROL_PLANE_ADMIN_TOKEN")
     )
     if not token:
         raise ControlPlaneError(
@@ -113,12 +114,15 @@ async def control_plane_register(
     username: str,
     password: str,
     email: str | None = None,
+    invite_code: str | None = None,
     client_ip: str | None = None,
 ) -> dict[str, Any]:
     base = get_control_plane_base_url()
     body: dict[str, Any] = {"username": username, "password": password}
     if email:
         body["email"] = email
+    if invite_code:
+        body["invite_code"] = invite_code
     try:
         async with _client() as client:
             resp = await client.post(f"{base}/v1/auth/register", json=body, headers=_client_ip_headers(client_ip))

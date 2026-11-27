@@ -15,6 +15,7 @@ import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { useIsRestrictedMember } from "@/stores/saas-role-store";
 import { useUsageHeaderStore } from "@/stores/usage-header-store";
 import type { WorkspaceNotification } from "@/types";
 import { episodeDisplayName } from "@/utils/episode-display";
@@ -33,6 +34,7 @@ export function GlobalHeader() {
   const isConfigComplete = useConfigStatusStore((s) => s.isComplete);
   const fetchConfigStatus = useConfigStatusStore((s) => s.fetch);
   const demoMode = useDemoWorkbench();
+  const restricted = useIsRestrictedMember();
 
   const routeEpisode = /\/episodes\/(\d+)/.exec(location)?.[1];
   const projectEpisodes = currentProjectData?.episodes ?? [];
@@ -135,7 +137,7 @@ export function GlobalHeader() {
         <DocsIconLink tooltipSide="bottom" />
         <IconLink href={`~${ROUTE_APP_SETTINGS}`} label={t("dashboard:global_settings")}>
           <Settings aria-hidden />
-          {!isConfigComplete && (
+          {!isConfigComplete && !restricted && (
             <span
               role="img"
               aria-label={t("common:config_incomplete")}

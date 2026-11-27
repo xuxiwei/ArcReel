@@ -49,6 +49,13 @@ class MaterialMaintenance:
                 logger.warning("重试删除正式素材对象失败，等下一轮", exc_info=True)
             if time.monotonic() - last_cleanup >= CACHE_CLEANUP_INTERVAL.total_seconds():
                 last_cleanup = time.monotonic()
+                from saas.adapter.mode import is_saas
+
+                if is_saas() and self._data_root is not None:
+                    # SaaS PATCH: projects live under projects/org/<org>/ (saas/isolation/maintenance_scope.py).
+                    await self._saas_hourly()
+                    await asyncio.sleep(SWEEP_INTERVAL_SECONDS)
+                    continue
                 try:
                     await retain_formal_objects(
                         self._projects_dir, self._deleted_projects_dir, session_factory=self._session_factory
@@ -66,6 +73,22 @@ class MaterialMaintenance:
                 except Exception:
                     logger.warning("清理远端素材工作文件失败，等下一轮", exc_info=True)
             await asyncio.sleep(SWEEP_INTERVAL_SECONDS)
+
+    async def _saas_hourly(self) -> None:
+        from saas.isolation.maintenance_scope import cleanup_all, retain_all
+
+        assert self._data_root is not None
+        try:
+            await retain_all(self._data_root, self._session_factory)
+        except Exception:
+            logger.warning("重算正式对象引用失败，等下一轮", exc_info=True)
+        try:
+            await cleanup_all(self._data_root, self._session_factory, min_idle=DEFAULT_MIN_IDLE)
+            await cleanup_global_work_files(
+                self._data_root, min_idle=DEFAULT_MIN_IDLE, session_factory=self._session_factory
+            )
+        except Exception:
+            logger.warning("清理远端素材工作文件失败，等下一轮", exc_info=True)
 
     def start(self) -> None:
         self._task = asyncio.get_running_loop().create_task(self._loop(), name="material-maintenance")

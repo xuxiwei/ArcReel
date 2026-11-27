@@ -13,4 +13,8 @@ export default {
   'register_subtitle': 'Создайте новый аккаунт',
   'have_account': 'Уже есть аккаунт? Войти',
   'need_account': 'Нет аккаунта? Зарегистрироваться',
+  'invite_code': 'Код приглашения',
+  'invite_code_hint': 'Нужен только при регистрации по приглашениям',
+  'register_closed': 'Регистрация сейчас закрыта',
+  'invite_invalid': 'Код приглашения отсутствует, неверен, исчерпан или истёк',
 } satisfies Record<keyof typeof enAuth, string> & Record<string, string>;

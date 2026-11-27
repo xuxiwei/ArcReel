@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal
 
 ObjectStorageErrorKind = Literal["auth", "not_found", "denied", "network", "invalid_config", "provider"]
@@ -76,6 +77,10 @@ def _classify(exc: Exception) -> ObjectStorageError:
     return ObjectStorageError("provider", message=type(exc).__name__)
 
 
+# SaaS PATCH: Aliyun OSS ("oss") next to TOS; the OSS backend lives in saas/storage/aliyun_oss.py.
+SUPPORTED_KINDS = frozenset({"tos", "oss"})
+
+
 class ObjectStorageClient:
     """一条对象存储连接上的对象操作。
 
@@ -84,9 +89,9 @@ class ObjectStorageClient:
     """
 
     def __init__(self, config: ObjectStorageConfig) -> None:
-        if config.kind != "tos":
+        if config.kind not in SUPPORTED_KINDS:
             raise ObjectStorageError("invalid_config", code="UnsupportedKind")
-        if is_s3_compatible_endpoint(config.endpoint):
+        if config.kind == "tos" and is_s3_compatible_endpoint(config.endpoint):
             raise ObjectStorageError("invalid_config", code="S3EndpointUnsupported")
         self.config = config
         self._sdk: Any = None
@@ -130,11 +135,19 @@ class ObjectStorageClient:
         output = self._call("put_object", key=key, content=data, content_type=content_type)
         return str(getattr(output, "etag", "") or "")
 
+    def put_file_sync(self, key: str, path: Path, *, content_type: str | None = None) -> str:
+        """从本地文件流式写入对象（SaaS：视频、音频），返回 ETag。"""
+        output = self._call("put_object_from_file", key=key, file_path=str(path), content_type=content_type)
+        return str(getattr(output, "etag", "") or "")
+
     def head_sync(self, key: str) -> ObjectInfo:
         return _object_info(self._call("head_object", key=key))
 
     async def delete(self, key: str) -> None:
         await self._run("delete_object", key=key)
+
+    def delete_sync(self, key: str) -> None:
+        self._call("delete_object", key=key)
 
     async def presign_get(self, key: str, *, expires_seconds: int) -> str:
         """为对象签发有时效的下载地址。地址只交给需要取图的一方，不记录、不当作存储定位。"""
@@ -159,6 +172,10 @@ IMAGE_CONTENT_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "imag
 
 def create_sdk_client(config: ObjectStorageConfig) -> Any:
     """构造 TOS SDK 客户端；测试在这一处替换对象存储的网络边界。"""
+    if config.kind == "oss":  # SaaS PATCH
+        from saas.storage.aliyun_oss import create_oss_client
+
+        return create_oss_client(config)
     import tos
 
     return tos.TosClientV2(

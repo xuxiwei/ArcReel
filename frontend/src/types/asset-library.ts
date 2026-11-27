@@ -1,5 +1,5 @@
 export interface ObjectStorageConnection {
-  kind: "tos";
+  kind: "tos" | "oss";
   region: string;
   endpoint: string;
   bucket: string;

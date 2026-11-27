@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { useSearch } from "wouter";
 import {
   AlertTriangle,
@@ -12,6 +12,7 @@ import {
   KeyRound,
   Plug,
   ScrollText,
+  ShieldCheck,
   SlidersHorizontal,
   Store,
   Waypoints,
@@ -27,6 +28,7 @@ import { PageSidebar, type PageSidebarGroup } from "@/components/shared/page-she
 import { useReturnTo } from "@/components/shared/page-shell/return-to";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 import { useConfigStatusStore, useSectionConfigIssues } from "@/stores/config-status-store";
+import { useIsRestrictedMember, useIsSaas, useIsSaasAdmin } from "@/stores/saas-role-store";
 import { UsageRecordsSection } from "../usage/UsageRecordsSection";
 import { AgentConfigTab } from "./AgentConfigTab";
 import { ProviderSection } from "./ProviderSection";
@@ -40,6 +42,7 @@ import { GeneralSection } from "./settings/GeneralSection";
 import { MarketSection } from "./settings/market/MarketSection";
 import { MediaModelSection } from "./settings/MediaModelSection";
 import { PromptTemplatesSection } from "./settings/PromptTemplatesSection";
+import { ReconciliationSection } from "./settings/ReconciliationSection";
 
 interface SectionDef {
   labelKey: string;
@@ -58,6 +61,7 @@ const SECTIONS: Record<SettingsSection, SectionDef> = {
   "access-tokens": { labelKey: "dashboard:settings_access_tokens", icon: KeyRound, tier: "constrained" },
   market: { labelKey: "dashboard:market_section_title", icon: Store, tier: "full" },
   usage: { labelKey: "dashboard:usage", icon: BarChart3, tier: "full" },
+  reconciliation: { labelKey: "dashboard:reconciliation_title", icon: ShieldCheck, tier: "constrained" },
   general: { labelKey: "dashboard:settings_general", icon: SlidersHorizontal, tier: "constrained" },
   "prompt-templates": { labelKey: "dashboard:prompt_templates", icon: ScrollText, tier: "constrained" },
   about: { labelKey: "dashboard:about", icon: Info, tier: "constrained" },
@@ -70,7 +74,7 @@ const SECTION_GROUPS: { id: string; labelKey?: string; sections: SettingsSection
     labelKey: "dashboard:settings_group_agent",
     sections: ["arcreel-agent", "agent-memory", "external-agent", "access-tokens"],
   },
-  { id: "standalone", sections: ["market", "usage"] },
+  { id: "standalone", sections: ["market", "usage", "reconciliation"] },
   { id: "system", labelKey: "dashboard:settings_group_system", sections: ["general", "prompt-templates", "about"] },
 ];
 
@@ -78,6 +82,27 @@ const SECTION_ONBOARDING_ANCHORS: Partial<Record<SettingsSection, string>> = {
   providers: ONBOARDING_ANCHORS.settingsProviders,
   "arcreel-agent": ONBOARDING_ANCHORS.settingsAgent,
 };
+
+/** SaaS members only see their own settings (usage is scoped to their own calls); the rest is admin-only. */
+const MEMBER_SECTIONS: ReadonlySet<SettingsSection> = new Set<SettingsSection>([
+  "agent-memory",
+  "usage",
+  "general",
+  "prompt-templates",
+  "about",
+]);
+
+/**
+ * SaaS: platform settings that now live in the control-plane admin console (``arcreel-control-plane/web``).
+ * Providers, default models, endpoints, the ArcReel Agent and the market stay here until they are ported.
+ */
+const MOVED_TO_CONSOLE: ReadonlySet<SettingsSection> = new Set<SettingsSection>([
+  "asset-library",
+  "external-agent",
+  "access-tokens",
+  "reconciliation",
+]);
+const ADMIN_CONSOLE_URL: string = (import.meta.env.VITE_ADMIN_CONSOLE_URL as string | undefined) ?? "";
 
 function parseSection(search: string): SettingsSection {
   const value = new URLSearchParams(search).get("section");
@@ -87,7 +112,23 @@ function parseSection(search: string): SettingsSection {
 export function SystemConfigPage() {
   const { t } = useTranslation(["common", "dashboard"]);
   const search = useSearch();
-  const activeSection = parseSection(search);
+  const restricted = useIsRestrictedMember();
+  const saasAdmin = useIsSaasAdmin();
+  const saas = useIsSaas();
+  const visible = useCallback(
+    (id: SettingsSection) => {
+      if (saas && MOVED_TO_CONSOLE.has(id)) return false;
+      if (id === "reconciliation") return saasAdmin;
+      return !restricted || MEMBER_SECTIONS.has(id);
+    },
+    [restricted, saasAdmin, saas],
+  );
+  const requestedSection = parseSection(search);
+  const activeSection: SettingsSection = visible(requestedSection)
+    ? requestedSection
+    : restricted
+      ? "general"
+      : "providers";
   const goBack = useReturnTo();
 
   const configIssues = useSectionConfigIssues();
@@ -107,7 +148,7 @@ export function SystemConfigPage() {
       SECTION_GROUPS.map((group) => ({
         id: group.id,
         label: group.labelKey ? t(group.labelKey) : undefined,
-        items: group.sections.map((id) => ({
+        items: group.sections.filter(visible).map((id) => ({
           id,
           label: t(SECTIONS[id].labelKey),
           icon: SECTIONS[id].icon,
@@ -120,8 +161,8 @@ export function SystemConfigPage() {
               </span>
             ) : undefined,
         })),
-      })),
-    [t, issueSections],
+      })).filter((group) => group.items.length > 0),
+    [t, issueSections, visible],
   );
 
   return (
@@ -133,6 +174,18 @@ export function SystemConfigPage() {
       {SECTIONS[activeSection].tier === "bleed" && activeIssues.length > 0 && (
         <div className="shrink-0 px-6 pt-4">
           <ConfigIssueNotice issues={activeIssues} />
+        </div>
+      )}
+      {saasAdmin && (
+        <div className="shrink-0 px-6 pt-4">
+          <p className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+            <span>{t("dashboard:settings_moved_to_console")}</span>
+            {ADMIN_CONSOLE_URL && (
+              <a className="font-medium text-primary underline-offset-4 hover:underline" href={ADMIN_CONSOLE_URL} target="_blank" rel="noreferrer">
+                {t("dashboard:settings_open_console")}
+              </a>
+            )}
+          </p>
         </div>
       )}
       <SectionContent section={activeSection} />
@@ -162,6 +215,8 @@ function SectionContent({ section }: { section: SettingsSection }) {
       return <MarketSection />;
     case "usage":
       return <UsageRecordsSection />;
+    case "reconciliation":
+      return <ReconciliationSection />;
     case "general":
       return <GeneralSection />;
     case "prompt-templates":

@@ -52,6 +52,12 @@ def get_database_url() -> str:
     不会有一方先在新文件名下建出空库。显式设置 ``DATABASE_URL`` 时不改名。
     """
     url = os.environ.get("DATABASE_URL", "").strip()
+    if not url:
+        # SaaS PATCH: after start-up the URL (it carries the DB password) is moved out of
+        # os.environ so child processes never inherit it; see saas/adapter/secret_env.py.
+        from saas.adapter.secret_env import get as _sealed_setting
+
+        url = _sealed_setting("DATABASE_URL")
     if url:
         return url
     from lib.infra.data_root_layout import DataRootLayout

@@ -57,6 +57,8 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   logout: () => {
+    // SaaS: drop the HttpOnly media cookie too (no-op response when self-hosted).
+    void fetch("/api/v1/auth/logout", { method: "POST" }).catch(() => undefined);
     clearToken();
     set({ token: null, username: null, isAuthenticated: false });
   },

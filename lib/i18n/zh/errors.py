@@ -784,6 +784,7 @@ MESSAGES = {
     "object_storage_test_unreachable": "无法连接对象存储。检查 Endpoint 与网络后重试",
     "object_storage_test_failed": "对象存储返回错误，连接测试未通过",
     "object_storage_connection_in_use": "这个连接上还有 {count} 个图片对象正在使用或正在保存，不能更换桶、Endpoint、区域，也不能删除连接；可以只更新访问密钥",
+    "object_storage_tasks_running": "还有 {count} 个生成任务在排队或执行，现在更换桶、Endpoint、区域或删除连接会让它们的结果保存失败；请等任务结束后再改（只更新访问密钥不受影响）",
     "material_storage_object_storage_missing": "新增图片设为保存到对象存储，但还没有配置对象存储连接。在设置的「素材库与存储」中配置连接，或把「新增图片保存位置」改回本地",
     "material_storage_target_needs_connection": "先配置对象存储连接，再把新增图片改为保存到对象存储",
     "object_storage_connection_is_new_image_target": "新增图片正保存到这个对象存储，不能删除连接。先把「新增图片保存位置」改回本地，再删除连接",

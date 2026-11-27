@@ -586,8 +586,10 @@ async def cleanup_work_cache(
             continue
         async with session_factory() as session:
             stored = await stored_object_keys(session, {item.stored for item in work_files})
+        from saas.storage.media_offload import keeps_local_work_file  # SaaS PATCH
+
         for work_file in work_files:
-            if work_file.stored not in stored:
+            if work_file.stored not in stored or keeps_local_work_file(work_file.path):
                 continue
             count, size, in_use = await asyncio.to_thread(_evict, project_path, work_file, idle_before)
             removed += count

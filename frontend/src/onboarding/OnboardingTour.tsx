@@ -4,9 +4,17 @@ import { useLocation, useSearch } from "wouter";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "@/stores/auth-store";
 import { useOnboardingStore } from "@/stores/onboarding-store";
+import { useIsRestrictedMember } from "@/stores/saas-role-store";
 import { APP_PROJECT_WORKSPACE_PATTERN, APP_TOP_LEVEL_ROUTES } from "@/app-routes";
+import { ONBOARDING_ANCHORS } from "./anchors";
 import { buildTourSteps } from "./steps";
 import { startTour, type TourLabels } from "./tour";
+
+/** SaaS PATCH: members cannot open these admin-only settings pages, so the tour skips their steps. */
+const ADMIN_ONLY_ANCHORS: ReadonlySet<string> = new Set([
+  ONBOARDING_ANCHORS.settingsProviders,
+  ONBOARDING_ANCHORS.settingsAgent,
+]);
 
 export function OnboardingTour() {
   const { t } = useTranslation("onboarding");
@@ -23,7 +31,11 @@ export function OnboardingTour() {
       (APP_TOP_LEVEL_ROUTES as readonly string[]).includes(normalizedLocation) ||
       APP_PROJECT_WORKSPACE_PATTERN.test(normalizedLocation));
 
-  const steps = useMemo(() => buildTourSteps(t), [t]);
+  const restricted = useIsRestrictedMember();
+  const steps = useMemo(
+    () => buildTourSteps(t).filter((step) => !restricted || !step.anchor || !ADMIN_ONLY_ANCHORS.has(step.anchor)),
+    [t, restricted],
+  );
   const tourRoutes = useMemo(
     () => new Set(steps.map((s) => s.route).filter((route): route is string => Boolean(route))),
     [steps],

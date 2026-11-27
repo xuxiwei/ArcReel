@@ -20,6 +20,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "@/
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 import { useConfigStatusStore } from "@/stores/config-status-store";
+import { useIsRestrictedMember } from "@/stores/saas-role-store";
 
 interface LobbyHeaderProps {
   query: string;
@@ -33,6 +34,7 @@ interface LobbyHeaderProps {
 export function LobbyHeader({ query, onQueryChange, onCreate, onImport, importing, onOpenDeleted }: LobbyHeaderProps) {
   const { t } = useTranslation(["dashboard", "common", "assets"]);
   const configComplete = useConfigStatusStore((s) => s.isComplete);
+  const restricted = useIsRestrictedMember();
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -55,9 +57,11 @@ export function LobbyHeader({ query, onQueryChange, onCreate, onImport, importin
             <Library aria-hidden data-icon="inline-start" />
             {t("assets:library_title")}
           </Link>
-          <IconLink href={settingsSectionPath("external-agent")} label={t("dashboard:settings_external_agent")}>
-            <Bot aria-hidden />
-          </IconLink>
+          {!restricted && (
+            <IconLink href={settingsSectionPath("external-agent")} label={t("dashboard:settings_external_agent")}>
+              <Bot aria-hidden />
+            </IconLink>
+          )}
           <Tooltip>
             <TooltipTrigger
               render={
@@ -102,7 +106,7 @@ export function LobbyHeader({ query, onQueryChange, onCreate, onImport, importin
             onboardingAnchor={ONBOARDING_ANCHORS.lobbySettings}
           >
             <Settings aria-hidden />
-            {!configComplete && (
+            {!configComplete && !restricted && (
               <span
                 role="img"
                 aria-label={t("common:config_incomplete")}

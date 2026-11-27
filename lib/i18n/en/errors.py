@@ -840,6 +840,7 @@ MESSAGES = {
     "object_storage_test_unreachable": "Cannot connect to object storage. Check the endpoint and your network, then try again",
     "object_storage_test_failed": "Object storage returned an error, so the connection test did not pass",
     "object_storage_connection_in_use": "{count} image objects on this connection are in use or being saved, so the bucket, endpoint and region cannot be changed and the connection cannot be deleted; you can still update the access keys",
+    "object_storage_tasks_running": "{count} generation tasks are queued or running; changing the bucket, endpoint or region or deleting the connection now would make their results fail to save. Try again when they finish (updating only the access keys is still allowed)",
     "material_storage_object_storage_missing": 'New images are set to be saved to object storage, but no object storage connection is configured. Configure the connection under Asset library & storage in settings, or set "Save new images to" back to local',
     "material_storage_target_needs_connection": "Configure an object storage connection before saving new images to object storage",
     "object_storage_connection_is_new_image_target": 'New images are being saved to this object storage, so the connection cannot be deleted. Set "Save new images to" back to local first, then delete the connection',

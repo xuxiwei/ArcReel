@@ -10,6 +10,7 @@ from sqlalchemy import Select, delete, func, select
 
 from lib.db.models.asset import Asset, AssetDerivative
 from lib.db.repositories.base import BaseRepository
+from saas.isolation.asset_scope import org_for_create, scope_assets  # SaaS PATCH: library per organisation
 
 
 def _match_name[S: Select](stmt: S, q: str | None) -> S:
@@ -42,6 +43,7 @@ class AssetRepository(BaseRepository):
         """
         asset = Asset(
             id=asset_id or str(uuid.uuid4()),
+            org_id=org_for_create(),
             type=type,
             name=name,
             description=description,
@@ -56,17 +58,21 @@ class AssetRepository(BaseRepository):
         return asset
 
     async def get_by_id(self, asset_id: str) -> Asset | None:
-        return (await self.session.execute(select(Asset).where(Asset.id == asset_id))).scalar_one_or_none()
+        return (
+            await self.session.execute(scope_assets(select(Asset).where(Asset.id == asset_id)))
+        ).scalar_one_or_none()
 
     async def get_by_type_name(self, type: str, name: str) -> Asset | None:
         return (
-            await self.session.execute(select(Asset).where(Asset.type == type, Asset.name == name))
+            await self.session.execute(scope_assets(select(Asset).where(Asset.type == type, Asset.name == name)))
         ).scalar_one_or_none()
 
     async def get_by_ids(self, asset_ids: list[str]) -> list[Asset]:
         if not asset_ids:
             return []
-        return list((await self.session.execute(select(Asset).where(Asset.id.in_(asset_ids)))).scalars())
+        return list(
+            (await self.session.execute(scope_assets(select(Asset).where(Asset.id.in_(asset_ids))))).scalars()
+        )
 
     async def list(
         self,
@@ -76,7 +82,7 @@ class AssetRepository(BaseRepository):
         limit: int = 100,
         offset: int = 0,
     ) -> list[Asset]:
-        stmt = _match_name(select(Asset), q)
+        stmt = scope_assets(_match_name(select(Asset), q))
         if type:
             stmt = stmt.where(Asset.type == type)
         stmt = stmt.order_by(Asset.updated_at.desc(), Asset.id.desc()).limit(limit).offset(offset)
@@ -84,7 +90,7 @@ class AssetRepository(BaseRepository):
 
     async def count_by_type(self, *, q: str | None) -> dict[str, int]:
         """按类型统计名称匹配 ``q`` 的条目数；没有匹配条目的类型不出现在结果里。"""
-        stmt = _match_name(select(Asset.type, func.count()), q).group_by(Asset.type)
+        stmt = scope_assets(_match_name(select(Asset.type, func.count()), q)).group_by(Asset.type)
         return dict((await self.session.execute(stmt)).tuples().all())
 
     async def update(self, asset_id: str, **fields: Any) -> Asset:

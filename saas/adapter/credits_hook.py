@@ -13,10 +13,12 @@ charged its hold estimate and an error is logged.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 import os
 import time
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
@@ -43,6 +45,9 @@ _DEFAULT_HOLD = Decimal("10")
 _CONFIG_TTL_SEC = 60.0
 _VIDEO_ESTIMATE_SECONDS = 5
 AGENT_TURN_PREFIX = "agent_turn:"
+# Settle / release after the provider call has happened: a transient control-plane
+# error must not leave the hold frozen, so retry with a short backoff.
+_RETRY_DELAYS_SEC: tuple[float, ...] = (1.0, 3.0)
 
 # key -> (fetched_at, value); the last good value survives control-plane outages.
 _config_cache: dict[str, tuple[float, Decimal]] = {}
@@ -157,6 +162,23 @@ def _legacy_call_ids(api_call_id: int, identity: BillingIdentity | None) -> list
     return ids
 
 
+def _is_transient(exc: ControlPlaneError) -> bool:
+    return exc.status_code >= 500 or exc.status_code in (408, 429)
+
+
+async def _with_retry[T](call: Callable[[], Awaitable[T]]) -> T:
+    """Run ``call``; retry transient control-plane errors (unreachable, 5xx, 429)."""
+    for delay in _RETRY_DELAYS_SEC:
+        try:
+            return await call()
+        except ControlPlaneError as exc:
+            if not _is_transient(exc):
+                raise
+            logger.warning("control plane transient error %s, retrying in %.0fs", exc.status_code, delay)
+            await asyncio.sleep(delay)
+    return await call()
+
+
 def _require_identity(what: str, ref: object) -> BillingIdentity:
     identity = get_billing_identity()
     if identity is None:
@@ -257,7 +279,7 @@ async def settle_api_call_from_db(api_call_id: int, session_factory: Any) -> Non
     base.update(await _provider_cost_kwargs(row.cost_amount, row.currency))
     for call_id in [credit_call_id(api_call_id, row.started_at), *_legacy_call_ids(api_call_id, identity)]:
         try:
-            await control_plane_internal_settle(call_id=call_id, **base)
+            await _with_retry(lambda call_id=call_id: control_plane_internal_settle(call_id=call_id, **base))
             return
         except ControlPlaneError as exc:
             if exc.status_code == 404:
@@ -275,13 +297,29 @@ async def release_for_api_call(*, api_call_id: int, session_factory: Any) -> Non
     started_at = row.started_at if row is not None else None
     for call_id in [credit_call_id(api_call_id, started_at), *_legacy_call_ids(api_call_id, identity)]:
         try:
-            await control_plane_internal_release(org_id=identity.org_id, call_id=call_id)
+            await _with_retry(lambda call_id=call_id: control_plane_internal_release(org_id=identity.org_id, call_id=call_id))
             return
         except ControlPlaneError as exc:
             if exc.status_code == 404:
                 continue
             logger.error("saas release failed call_id=%s status=%s detail=%s", call_id, exc.status_code, exc.detail)
             return
+
+
+async def finalize_failed_api_call(*, api_call_id: int, session_factory: Any) -> None:
+    """A failed call: settle what it already consumed (e.g. text tokens before the error), else release.
+
+    Upstream records the partial cost of a failed text call in ``api_calls``; releasing
+    the hold would let that consumption go unbilled.
+    """
+    if not is_saas():
+        return
+    row = await _load_call(session_factory, api_call_id)
+    cost = getattr(row, "cost_amount", None) if row is not None else None
+    if cost is not None and Decimal(str(cost)) > 0:
+        await settle_api_call_from_db(api_call_id, session_factory)
+    else:
+        await release_for_api_call(api_call_id=api_call_id, session_factory=session_factory)
 
 
 async def release_interrupted_calls(call_ids: list[int], session_factory: Any) -> None:
@@ -335,7 +373,7 @@ async def release_agent_turn(*, hold_ref: str | None, identity: BillingIdentity 
     if not is_saas() or not hold_ref or identity is None:
         return
     try:
-        await control_plane_internal_release(org_id=identity.org_id, hold_id=hold_ref)
+        await _with_retry(lambda: control_plane_internal_release(org_id=identity.org_id, hold_id=hold_ref))
     except ControlPlaneError as exc:
         if exc.status_code != 404:
             logger.error("saas agent release failed hold=%s detail=%s", hold_ref, exc.detail)
@@ -394,7 +432,7 @@ async def settle_agent_turn(
         kwargs: dict[str, Any] = {"org_id": identity.org_id, "hold_id": hold_ref, "actual_credits": total}
         if cost_cny is not None:
             kwargs.update(await _provider_cost_kwargs(cost_cny, "CNY"))
-        await control_plane_internal_settle(**kwargs)
+        await _with_retry(lambda: control_plane_internal_settle(**kwargs))
     except ControlPlaneError as exc:
         logger.error("saas agent settle failed session=%s hold=%s detail=%s", session_id, hold_ref, exc.detail)
 

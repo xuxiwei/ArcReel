@@ -933,8 +933,19 @@ class AssistantService:
 
     @property
     def pm(self) -> ProjectManager:
-        """Prefer request-scoped SaaS org manager when billing identity is present."""
+        """Prefer request-scoped SaaS org manager when billing identity is present.
+
+        An explicitly assigned manager (tests, embedding) wins, matching upstream's
+        plain ``self.pm`` attribute.
+        """
+        override = getattr(self, "_pm_override", None)
+        if override is not None:
+            return override
         return get_project_manager()
+
+    @pm.setter
+    def pm(self, value: ProjectManager | None) -> None:
+        self._pm_override = value
 
     def list_available_skills(self, project_name: str | None = None) -> list[dict[str, str]]:
         """List available skills."""

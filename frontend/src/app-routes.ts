@@ -15,6 +15,7 @@ export const SETTINGS_SECTIONS = [
   "access-tokens",
   "market",
   "usage",
+  "reconciliation",
   "general",
   "prompt-templates",
   "about",

@@ -13,4 +13,8 @@ export default {
   'register_subtitle': 'Tạo tài khoản mới',
   'have_account': 'Đã có tài khoản? Đăng nhập',
   'need_account': 'Chưa có tài khoản? Đăng ký',
+  'invite_code': 'Mã mời',
+  'invite_code_hint': 'Chỉ cần khi đăng ký theo lời mời',
+  'register_closed': 'Hiện chưa mở đăng ký',
+  'invite_invalid': 'Mã mời bị thiếu, không hợp lệ, đã dùng hết hoặc đã hết hạn',
 } satisfies Record<keyof typeof enAuth, string>;

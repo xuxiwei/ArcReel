@@ -8,7 +8,7 @@ SaaS 模式下登录/注册代理到控制面，会话 JWT 由控制面签发。
 import logging
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
 
@@ -20,6 +20,7 @@ from saas.adapter.control_plane_client import (
 )
 from saas.adapter.mode import get_deployment_mode, is_saas
 from server.auth import (
+    EMBEDDED_AGENT_SUB,
     CurrentUser,
     check_credentials,
     create_token,
@@ -59,6 +60,8 @@ class WalletBalanceResponse(BaseModel):
 class MeWalletResponse(BaseModel):
     org_id: str | None = None
     username: str | None = None
+    # SaaS PATCH: platform admin (control-plane users.is_admin); the frontend hides admin-only pages otherwise.
+    is_admin: bool = False
     wallet: WalletBalanceResponse
 
 
@@ -71,6 +74,8 @@ class RegisterRequest(BaseModel):
     username: str = Field(min_length=3, max_length=64)
     password: str = Field(min_length=8, max_length=128)
     email: str | None = None
+    # SaaS PATCH: forwarded to the control plane, which checks it in invite-only registration mode.
+    invite_code: str | None = Field(default=None, max_length=32)
 
 
 def _opt_str(value: object) -> str | None:
@@ -96,6 +101,7 @@ async def auth_status():
 @public_router.post("/auth/token", response_model=TokenResponse)
 async def login_for_access_token(
     request: Request,
+    response: Response,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     _t: Translator,
 ):
@@ -133,6 +139,7 @@ async def login_for_access_token(
         claims = verify_control_plane_token(data["access_token"])
         if claims and claims.get("user_id"):
             await ensure_local_saas_user(str(claims["user_id"]), username=form_data.username)
+            _issue_media_cookie(request, response, claims)
         logger.info("SaaS 用户登录成功: %s", form_data.username)
         return TokenResponse(access_token=data["access_token"], token_type="bearer")
 
@@ -150,7 +157,7 @@ async def login_for_access_token(
 
 
 @public_router.post("/auth/register", response_model=TokenResponse, status_code=201)
-async def register_account(request: Request, body: RegisterRequest, _t: Translator):
+async def register_account(request: Request, response: Response, body: RegisterRequest, _t: Translator):
     """SaaS 开放注册（代理控制面）。自托管返回 404。"""
     if not is_saas():
         raise HTTPException(status_code=404, detail="register is only available in saas mode")
@@ -160,6 +167,7 @@ async def register_account(request: Request, body: RegisterRequest, _t: Translat
             username=body.username,
             password=body.password,
             email=body.email,
+            invite_code=body.invite_code,
             client_ip=_client_ip(request),
         )
     except ControlPlaneError as exc:
@@ -173,8 +181,27 @@ async def register_account(request: Request, body: RegisterRequest, _t: Translat
     claims = verify_control_plane_token(data["access_token"])
     if claims and claims.get("user_id"):
         await ensure_local_saas_user(str(claims["user_id"]), username=body.username)
+        _issue_media_cookie(request, response, claims)
     logger.info("SaaS 用户注册成功: %s", body.username)
     return TokenResponse(access_token=data["access_token"], token_type="bearer")
+
+
+def _issue_media_cookie(request: Request, response: Response, claims: dict) -> None:
+    # SaaS PATCH: media cookie with the login response (saas/isolation/media_access.py).
+    from saas.isolation.media_access import issue_media_cookie
+
+    if claims.get("org_id"):
+        issue_media_cookie(request, response, org_id=str(claims["org_id"]), user_id=str(claims["user_id"]))
+
+
+@public_router.post("/auth/logout", status_code=204)
+async def logout(response: Response) -> Response:
+    """SaaS PATCH: forget the media cookie. Tokens are kept by the browser only, so nothing else to revoke."""
+    from saas.isolation.media_access import clear_media_cookie
+
+    result = Response(status_code=204)
+    clear_media_cookie(result)
+    return result
 
 
 @router.get("/auth/verify", response_model=VerifyResponse)
@@ -228,6 +255,7 @@ async def me_wallet(request: Request, current_user: CurrentUser):
     return MeWalletResponse(
         org_id=str(org.get("id") or current_user.org_id or ""),
         username=str(user.get("username") or current_user.sub or ""),
+        is_admin=bool(user.get("is_admin")) and current_user.sub != EMBEDDED_AGENT_SUB,
         wallet=WalletBalanceResponse(
             balance=str(wallet.get("balance", "0")),
             held=str(wallet.get("held", "0")),

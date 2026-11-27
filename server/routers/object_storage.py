@@ -1,6 +1,6 @@
 """对象存储连接配置 API。
 
-实例至多一条连接（数据库唯一约束保证，并发首次保存时后到的请求按更新那一条处理），首期只支持 TOS。连接只是配置：保存后不改变任何图片的保存位置。密钥只经本接口写入，
+实例至多一条连接（数据库唯一约束保证，并发首次保存时后到的请求按更新那一条处理），支持 TOS 与阿里云 OSS（SaaS 补丁）。连接只是配置：保存后不改变任何图片的保存位置。密钥只经本接口写入，
 读取返回掩码；测试连接的失败原因只带服务端错误码与原文摘要，不带签名或请求地址。
 
 新增图片的保存位置（``material_storage_target``）是另一项全局设置，缺省本地，只能在已有连接时设为对象存储；
@@ -19,7 +19,7 @@ from datetime import timedelta
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends
-from pydantic import AfterValidator, BaseModel, Field, NonNegativeInt
+from pydantic import AfterValidator, BaseModel, Field, NonNegativeInt, model_validator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -56,8 +56,18 @@ _Stripped = Annotated[str, AfterValidator(_strip), Field(max_length=2048)]
 _StrippedOpt = Annotated[str | None, AfterValidator(_strip), Field(max_length=2048)]
 
 
+# SaaS PATCH: Aliyun OSS ("oss") next to TOS. The UI sends no kind, so it is inferred from the
+# endpoint (``*.aliyuncs.com`` → oss) unless given explicitly.
+ObjectStorageKind = Literal["tos", "oss"]
+
+
+def infer_kind(endpoint: str) -> ObjectStorageKind:
+    host = endpoint.strip().lower().removeprefix("https://").removeprefix("http://").split("/", 1)[0]
+    return "oss" if host.endswith(".aliyuncs.com") else "tos"
+
+
 class ObjectStorageConnectionResponse(BaseModel):
-    kind: Literal["tos"]
+    kind: ObjectStorageKind
     region: str
     endpoint: str
     bucket: str
@@ -79,13 +89,19 @@ class NewImageTargetBody(BaseModel):
 class SaveObjectStorageConnectionRequest(BaseModel):
     """保存连接。已有连接时，两个密钥字段留空表示保留已保存的值。"""
 
-    kind: Literal["tos"] = "tos"
+    kind: ObjectStorageKind | None = None
     region: _Stripped
     endpoint: _Stripped
     bucket: _Stripped
     access_key_id: _StrippedOpt = None
     secret_access_key: _StrippedOpt = None
     delete_remote_objects: bool = True
+
+    @model_validator(mode="after")
+    def _resolve_kind(self) -> SaveObjectStorageConnectionRequest:
+        if self.kind is None:
+            self.kind = infer_kind(self.endpoint or "")
+        return self
 
 
 class ConnectionCleanupResponse(BaseModel):
@@ -124,7 +140,7 @@ def _relocates(conn: ObjectStorageConnection, body: SaveObjectStorageConnectionR
 
 def _to_response(conn: ObjectStorageConnection) -> ObjectStorageConnectionResponse:
     return ObjectStorageConnectionResponse(
-        kind="tos",
+        kind=conn.kind if conn.kind in ("tos", "oss") else "tos",
         region=conn.region,
         endpoint=conn.endpoint,
         bucket=conn.bucket,
@@ -163,7 +179,7 @@ async def save_connection(
 ) -> SaveConnectionResponse:
     if not body.region or not body.endpoint or not body.bucket:
         raise UnprocessableError("object_storage_fields_required")
-    if is_s3_compatible_endpoint(body.endpoint):
+    if body.kind == "tos" and is_s3_compatible_endpoint(body.endpoint):
         raise UnprocessableError("object_storage_s3_endpoint_unsupported")
 
     async def apply_change() -> SaveConnectionResponse:
@@ -188,6 +204,9 @@ async def _save_connection(
             raise UnprocessableError("object_storage_keys_required")
         failures: dict[str, int] = {}
         if existing is not None and _relocates(existing, body):
+            from saas.isolation.connection_guard import ensure_no_active_tasks  # SaaS PATCH
+
+            await ensure_no_active_tasks(session)
             await _ensure_connection_unused(session, existing)
             if (existing.endpoint, existing.bucket) != (body.endpoint, body.bucket):
                 failures = await stack.enter_async_context(
@@ -215,6 +234,9 @@ async def delete_connection(
             existing = await repo.get()
             failures: dict[str, int] = {}
             if existing is not None:
+                from saas.isolation.connection_guard import ensure_no_active_tasks  # SaaS PATCH
+
+                await ensure_no_active_tasks(session)
                 await _ensure_connection_unused(session, existing)
                 if await new_content_target(session) == "object_storage":
                     raise ConflictError("object_storage_connection_is_new_image_target")

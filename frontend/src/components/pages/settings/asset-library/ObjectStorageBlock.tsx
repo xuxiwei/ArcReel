@@ -221,6 +221,8 @@ function ConnectionCard({
     <div className="flex flex-col gap-2 rounded-lg border border-border px-3 py-2.5">
       <div className="flex items-center gap-2">
         <dl className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">
+          <dt className="text-muted-foreground">{t("object_storage_kind")}</dt>
+          <dd>{t(connection.kind === "oss" ? "object_storage_kind_oss" : "object_storage_kind_tos")}</dd>
           <dt className="text-muted-foreground">{t("object_storage_bucket")}</dt>
           <dd className="min-w-0">
             <TruncatedText text={connection.bucket} className="font-mono" />
@@ -525,11 +527,11 @@ function ObjectStorageDialog({
           <DialogBody>
             <div className="flex flex-col gap-4">
               {field("region", t("object_storage_region"), region, setRegion, {
-                placeholder: "cn-beijing",
+                placeholder: "cn-hangzhou",
                 ref: regionRef,
               })}
               {field("endpoint", t("object_storage_endpoint"), endpoint, setEndpoint, {
-                placeholder: "tos-cn-beijing.volces.com",
+                placeholder: "oss-cn-hangzhou.aliyuncs.com / tos-cn-beijing.volces.com",
               })}
               {field("bucket", t("object_storage_bucket"), bucket, setBucket)}
               {field("ak", t("object_storage_access_key_id"), accessKeyId, setAccessKeyId, {

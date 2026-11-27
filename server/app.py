@@ -124,6 +124,9 @@ from server.routers import (
     versions,
 )
 from server.routers import auth as auth_router
+# SaaS PATCH: instance-wide settings are platform-admin only (no-op when self-hosted);
+# see saas/isolation/admin_guard.py
+from saas.isolation.admin_guard import SAAS_ADMIN_ONLY, SAAS_ADMIN_WRITES, SAAS_USAGE_SCOPE
 from server.services.project.coalesce import RequestCoalescer, application_reads
 from server.services.project.episode_id_records import recorded_episode_ids_on
 from server.services.project.project_events import ProjectEventService
@@ -546,10 +549,23 @@ async def _running_app(app: FastAPI, shutdown: ShutdownController) -> AsyncGener
     material_maintenance = start_material_maintenance(
         async_session_factory, layout.projects_dir, layout.deleted_projects_dir, data_root=layout.root
     )
+    from saas.adapter.mode import is_saas
+    from saas.storage.project_mirror import start_project_mirror
+
+    # SaaS PATCH: mirror project files (sources, final cuts, drafts, uploads) to object storage.
+    project_mirror = start_project_mirror(async_session_factory, layout.root)
+
+    if is_saas():
+        # SaaS PATCH: start-up is done; keep secrets out of every child process from now on.
+        from saas.adapter.secret_env import seal_secret_env
+
+        seal_secret_env()
     try:
         async with remote_mcp_host.run():
             yield
     finally:
+        if project_mirror is not None:
+            await project_mirror.stop()
         await material_maintenance.stop()
         await stop_asset_ingest(asset_ingest)
         await stop_trash_expiry(trash_expiry)
@@ -763,7 +779,7 @@ app.include_router(
     project_migration.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["项目数据升级"]
 )
 app.include_router(versions.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["版本管理"])
-app.include_router(usage.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["费用统计"])
+app.include_router(usage.router, prefix="/api/v1", dependencies=[Depends(get_current_user), Depends(SAAS_USAGE_SCOPE)], tags=["费用统计"])
 app.include_router(auth_router.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["认证"])
 app.include_router(
     assistant.router,
@@ -775,32 +791,32 @@ app.include_router(
     project_events.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["项目变更流"]
 )
 app.include_router(tasks.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["任务队列"])
-app.include_router(providers.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["供应商管理"])
+app.include_router(providers.router, prefix="/api/v1", dependencies=[Depends(get_current_user), Depends(SAAS_ADMIN_WRITES)], tags=["供应商管理"])
 app.include_router(
-    provider_models.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["供应商管理"]
+    provider_models.router, prefix="/api/v1", dependencies=[Depends(get_current_user), Depends(SAAS_ADMIN_WRITES)], tags=["供应商管理"]
 )
-app.include_router(catalog.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["模型目录"])
-app.include_router(object_storage.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["对象存储"])
+app.include_router(catalog.router, prefix="/api/v1", dependencies=[Depends(get_current_user), Depends(SAAS_ADMIN_WRITES)], tags=["模型目录"])
+app.include_router(object_storage.router, prefix="/api/v1", dependencies=[Depends(get_current_user), Depends(SAAS_ADMIN_ONLY)], tags=["对象存储"])
 app.include_router(
-    asset_library.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["供应商素材库"]
+    asset_library.router, prefix="/api/v1", dependencies=[Depends(get_current_user), Depends(SAAS_ADMIN_ONLY)], tags=["供应商素材库"]
 )
 app.include_router(
     provider_asset_links.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["供应商素材库"]
 )
-app.include_router(system_config.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["系统配置"])
-app.include_router(system.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["系统"])
-app.include_router(api_keys.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["API Key 管理"])
-app.include_router(agent_config.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["Agent 配置"])
+app.include_router(system_config.router, prefix="/api/v1", dependencies=[Depends(get_current_user), Depends(SAAS_ADMIN_WRITES)], tags=["系统配置"])
+app.include_router(system.router, prefix="/api/v1", dependencies=[Depends(get_current_user), Depends(SAAS_ADMIN_ONLY)], tags=["系统"])
+app.include_router(api_keys.router, prefix="/api/v1", dependencies=[Depends(get_current_user), Depends(SAAS_ADMIN_ONLY)], tags=["API Key 管理"])
+app.include_router(agent_config.router, prefix="/api/v1", dependencies=[Depends(get_current_user), Depends(SAAS_ADMIN_ONLY)], tags=["Agent 配置"])
 app.include_router(
-    custom_providers.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["自定义供应商"]
+    custom_providers.router, prefix="/api/v1", dependencies=[Depends(get_current_user), Depends(SAAS_ADMIN_WRITES)], tags=["自定义供应商"]
 )
 app.include_router(
-    custom_endpoints.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["自定义调用端点"]
+    custom_endpoints.router, prefix="/api/v1", dependencies=[Depends(get_current_user), Depends(SAAS_ADMIN_ONLY)], tags=["自定义调用端点"]
 )
-app.include_router(market.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["市场"])
-app.include_router(market_submissions.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["市场"])
+app.include_router(market.router, prefix="/api/v1", dependencies=[Depends(get_current_user), Depends(SAAS_ADMIN_WRITES)], tags=["市场"])
+app.include_router(market_submissions.router, prefix="/api/v1", dependencies=[Depends(get_current_user), Depends(SAAS_ADMIN_ONLY)], tags=["市场"])
 app.include_router(
-    official_service.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["官方服务"]
+    official_service.router, prefix="/api/v1", dependencies=[Depends(get_current_user), Depends(SAAS_ADMIN_ONLY)], tags=["官方服务"]
 )
 app.include_router(
     cost_estimation.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["费用估算"]
@@ -817,6 +833,7 @@ app.include_router(
     dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
     tags=["参考生视频"],
 )
+# SaaS: the global asset library is per organisation (saas/isolation/asset_scope.py), open to members.
 app.include_router(assets.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["全局资产库"])
 app.include_router(
     agent_memory.user_router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["Agent 记忆"]
@@ -834,9 +851,37 @@ app.include_router(
 
 app.include_router(auth_router.public_router, prefix="/api/v1", tags=["认证"])
 app.include_router(files.public_router, prefix="/api/v1", tags=["文件管理"])
+# SaaS PATCH: platform admins read the control plane's reconciliation reports (404 when self-hosted).
+from saas.adapter.routes_reconciliation import router as saas_reconciliation_router  # noqa: E402
 
-app.include_router(projects.self_auth_router, prefix="/api/v1", tags=["项目管理"])
-app.include_router(edit_timelines.self_auth_router, prefix="/api/v1", tags=["剪辑时间线"])
+app.include_router(
+    saas_reconciliation_router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(SAAS_ADMIN_ONLY)],
+    tags=["SaaS 对账"],
+)
+# SaaS PATCH: the control-plane admin console reads assets and per-user activity across organisations.
+from saas.adapter.routes_admin_workbench import router as saas_admin_workbench_router  # noqa: E402
+
+app.include_router(
+    saas_admin_workbench_router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(SAAS_ADMIN_ONLY)],
+    tags=["SaaS 管理"],
+)
+
+# SaaS PATCH: download_token links resolve the project in the issuer's org (no-op when self-hosted).
+from saas.isolation.download_identity import bind_download_identity  # noqa: E402
+
+app.include_router(
+    projects.self_auth_router, prefix="/api/v1", dependencies=[Depends(bind_download_identity)], tags=["项目管理"]
+)
+app.include_router(
+    edit_timelines.self_auth_router,
+    prefix="/api/v1",
+    dependencies=[Depends(bind_download_identity)],
+    tags=["剪辑时间线"],
+)
 
 
 mount_remote_mcp(app, remote_mcp_host)

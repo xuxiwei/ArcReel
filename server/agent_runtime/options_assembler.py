@@ -387,6 +387,13 @@ class OptionsAssembler:
                 "ARCREEL_API_TOKEN": _embedded_agent_token(),
             }
         )
+        # SaaS PATCH: 父进程里的多租户密钥（控制面 JWT/令牌、DATABASE_URL 等）不进 CLI 子进程
+        from saas.adapter.mode import is_saas
+
+        if is_saas():
+            from saas.isolation.agent_sandbox import blank_secret_env
+
+            blank_secret_env(provider_env)
         user_id = self._user_id_provider()
 
         def _build_sandbox_and_mcp_server() -> tuple[dict[str, Any], McpSdkServerConfig]:

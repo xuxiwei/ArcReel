@@ -388,10 +388,12 @@ class ProjectManager:
 
     def generate_project_name(self, title: str | None = None) -> str:
         """Generate a unique internal project identifier."""
+        from saas.isolation.project_names import name_taken_elsewhere  # SaaS PATCH: names unique across orgs
+
         prefix = self._slugify_project_title(title or "")
         while True:
             candidate = f"{prefix}-{secrets.token_hex(4)}"
-            if not (self.projects_dir / candidate).exists():
+            if not (self.projects_dir / candidate).exists() and not name_taken_elsewhere(self.layout, candidate):
                 return candidate
 
     @classmethod
@@ -482,6 +484,10 @@ class ProjectManager:
         project_dir = self.projects_dir / name
 
         with project_names_lock(self.layout):
+            from saas.isolation.project_names import name_taken_elsewhere  # SaaS PATCH: names unique across orgs
+
+            if name_taken_elsewhere(self.layout, name):
+                raise FileExistsError(f"项目 '{name}' 已存在")
             try:
                 project_dir.mkdir()
             except FileExistsError as exc:

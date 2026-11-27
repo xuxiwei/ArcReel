@@ -19,7 +19,7 @@ from typing import Annotated, Literal
 logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, UploadFile
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, RedirectResponse
 
 from lib.backends.http_status_errors import TextWaitTimeout
 from lib.bgm.library import BGM_DIR, BGM_EXTENSIONS, BGM_MAX_BYTES, BgmTrack
@@ -287,11 +287,20 @@ async def serve_project_file(
     """
     try:
 
+        from saas.isolation.media_access import media_org
+
+        # SaaS PATCH: media is readable only inside the viewer's organisation (HttpOnly media cookie).
+        viewer_org = media_org(request)
+
         def _resolve() -> tuple[ProjectManager, Path, Path, tuple[str, ...]]:
-            from saas.isolation.project_scope import resolve_public_project_manager
+            from saas.isolation.project_scope import _manager_for_org, resolve_public_project_manager
 
             # Public media has no Bearer; SaaS Isolation B still nests under org/.
-            project_manager = resolve_public_project_manager(get_project_manager(), project_name)
+            project_manager = (
+                _manager_for_org(viewer_org)
+                if viewer_org is not None
+                else resolve_public_project_manager(get_project_manager(), project_name)
+            )
             project_dir = project_manager.get_project_path(project_name)
 
             try:
@@ -327,6 +336,15 @@ async def serve_project_file(
         project_manager, project_dir, resolved_path, relative_parts = await asyncio.to_thread(_resolve)
         holds.enter_context(hold_work_file(resolved_path))
         holds.enter_context(hold_work_file(project_dir.joinpath(*relative_parts)))
+        if is_public_media_path(relative_parts) and thumbnail_width is None:
+            # SaaS PATCH: already in object storage → let the browser download it from there.
+            from saas.storage.media_redirect import REDIRECT_CACHE_SECONDS, object_storage_redirect
+
+            signed = await object_storage_redirect(project_dir, relative_parts, viewer_org)
+            if signed is not None:
+                return RedirectResponse(
+                    signed, status_code=302, headers={"Cache-Control": f"private, max-age={REDIRECT_CACHE_SECONDS}"}
+                )
         if is_public_media_path(relative_parts):
             await ensure_work_file(project_dir, "/".join(relative_parts))
         file_path, stat_result, media_type = await asyncio.to_thread(
@@ -355,10 +373,22 @@ async def serve_global_asset(
     holds: Annotated[ExitStack, Depends(_media_work_files, scope="request")],
 ):
     """服务 global_assets 下的全局资产媒体文件（仅全局库类型：character/scene/prop）"""
+    from saas.isolation.media_access import media_org
+
+    viewer_org = media_org(request)  # SaaS PATCH: signed-in viewers only
     if asset_type not in GLOBAL_LIBRARY_ASSET_TYPES:
         raise HTTPException(status_code=400, detail=_t("invalid_asset_type"))
     if "/" in filename or ".." in filename:
         raise HTTPException(status_code=400, detail=_t("invalid_asset_filename"))
+    if viewer_org is not None:
+        # SaaS PATCH: only files of the viewer's own organisation's library (saas/isolation/asset_scope.py).
+        from lib.db import async_session_factory
+        from saas.isolation.asset_scope import asset_file_visible
+
+        async with async_session_factory() as session:
+            visible = await asset_file_visible(session, f"{GLOBAL_ASSETS_DIRNAME}/{asset_type}/{filename}", viewer_org)
+        if not visible:
+            raise HTTPException(status_code=404, detail=_t("file_not_found", path=filename))
 
     def _resolve() -> tuple[Path, Path]:
         project_manager = get_project_manager()

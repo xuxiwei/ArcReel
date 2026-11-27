@@ -1840,28 +1840,31 @@ async def execute_generation_task(task: dict[str, Any], *, claimed_provider_id: 
     if executor is None:
         raise ValueError(f"unsupported task_type: {task_type}")
 
+    from saas.storage.media_offload import media_commit_scope  # SaaS PATCH: video/audio → object storage
+
     with project_change_source("worker"):
         try:
-            if task_type in ("video", "reference_video"):
-                result = await executor(
-                    project_name,
-                    resource_id,
-                    payload,
-                    script_file=task.get("script_file"),
-                    user_id=user_id,
-                    task_id=queue_task_id,
-                    claimed_provider_id=claimed_provider_id,
-                    poll_timeout_seconds=video_poll_timeout_seconds,
-                )
-            else:
-                result = await executor(
-                    project_name,
-                    resource_id,
-                    payload,
-                    user_id=user_id,
-                    task_id=queue_task_id,
-                    claimed_provider_id=claimed_provider_id,
-                )
+            async with media_commit_scope(task_type, project_name):
+                if task_type in ("video", "reference_video"):
+                    result = await executor(
+                        project_name,
+                        resource_id,
+                        payload,
+                        script_file=task.get("script_file"),
+                        user_id=user_id,
+                        task_id=queue_task_id,
+                        claimed_provider_id=claimed_provider_id,
+                        poll_timeout_seconds=video_poll_timeout_seconds,
+                    )
+                else:
+                    result = await executor(
+                        project_name,
+                        resource_id,
+                        payload,
+                        user_id=user_id,
+                        task_id=queue_task_id,
+                        claimed_provider_id=claimed_provider_id,
+                    )
         except GenerationTargetDeletedError as deleted:
             return deleted.result
         await run_noninterruptible_sync(

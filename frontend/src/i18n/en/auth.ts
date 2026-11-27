@@ -12,4 +12,8 @@ export default {
   'register_subtitle': 'Create a new account',
   'have_account': 'Already have an account? Sign in',
   'need_account': 'Need an account? Register',
+  'invite_code': 'Invite code',
+  'invite_code_hint': 'Required only when sign-up is invite-only',
+  'register_closed': 'Registration is currently closed',
+  'invite_invalid': 'The invite code is missing, invalid, used up or expired',
 };

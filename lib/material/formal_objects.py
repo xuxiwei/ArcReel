@@ -51,6 +51,7 @@ from lib.db.models.object_storage import FormalObject, FormalObjectRef, ObjectSt
 from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository
 from lib.infra.api_errors import BadGatewayError, ConflictError
 from lib.infra.async_thread import EventLoopBridge, run_noninterruptible_async, run_sync_transaction
+from lib.infra.content_digest import sha256_file
 from lib.material.storage import (
     CONTENT_VERSION_ID,
     STORAGE,
@@ -121,11 +122,14 @@ def formal_object_key(digest: str, suffix: str) -> str:
 
 
 def stores_remotely(resource_type: str) -> bool:
-    """该资源类型的新内容版本是否随全局设置保存到对象存储（只有图片）。"""
+    """该资源类型的新内容版本是否随全局设置保存到对象存储（只有图片；SaaS 下视频与音频也是）。"""
+    from saas.storage.media_offload import stores_media_remotely  # SaaS PATCH
+
     try:
-        return resource_extension(resource_type) == _IMAGE_EXTENSION
+        extension = resource_extension(resource_type)
     except ValueError:
         return False
+    return extension == _IMAGE_EXTENSION or stores_media_remotely(extension)
 
 
 async def new_content_target(session: AsyncSession) -> NewContentTarget:
@@ -260,19 +264,28 @@ class ObjectContentStorage:
         不登记项目：调用方写好引用它的版本记录后，经 :meth:`track` 指明结算读取的项目。
         归档导入用它把暂存目录里的图片保存到目标实例，再安装到项目目录。
         """
-        data = work_file.read_bytes()
-        if hashlib.sha256(data).hexdigest() != digest:
-            raise RemoteSaveFailedError("content_changed")
+        from saas.storage.media_offload import is_media_suffix, media_content_type  # SaaS PATCH
+
         suffix = work_file.suffix
+        # SaaS PATCH: video/audio can be hundreds of MB — hash and upload from the file instead of memory.
+        streamed = is_media_suffix(suffix)
+        data = b"" if streamed else work_file.read_bytes()
+        size = work_file.stat().st_size if streamed else len(data)
+        if (sha256_file(work_file) if streamed else hashlib.sha256(data).hexdigest()) != digest:
+            raise RemoteSaveFailedError("content_changed")
+        content_type = IMAGE_CONTENT_TYPES.get(suffix.lower()) or media_content_type(suffix)
         key = formal_object_key(digest, suffix)
-        needs_upload = self.bridge.run(self._begin(key, digest, len(data)))
+        needs_upload = self.bridge.run(self._begin(key, digest, size))
         client = self.connection.client
         try:
-            if not needs_upload and not _present(client, key, len(data)):
+            if not needs_upload and not _present(client, key, size):
                 needs_upload = True
             if needs_upload:
-                client.put_bytes_sync(key, data, content_type=IMAGE_CONTENT_TYPES.get(suffix.lower()))
-                if not _present(client, key, len(data)):
+                if streamed:
+                    client.put_file_sync(key, work_file, content_type=content_type)
+                else:
+                    client.put_bytes_sync(key, data, content_type=content_type)
+                if not _present(client, key, size):
                     raise RemoteSaveFailedError("not_confirmed")
         except ObjectStorageError as exc:
             raise RemoteSaveFailedError(exc.kind) from exc

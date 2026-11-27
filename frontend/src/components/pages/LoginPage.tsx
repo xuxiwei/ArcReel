@@ -18,6 +18,7 @@ export function LoginPage() {
   const { t, i18n } = useTranslation(["common", "auth"]);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [saasMode, setSaasMode] = useState(false);
@@ -62,11 +63,14 @@ export function LoginPage() {
             "Content-Type": "application/json",
             "Accept-Language": i18n.language || "zh",
           },
-          body: JSON.stringify({ username, password }),
+          body: JSON.stringify({ username, password, invite_code: inviteCode.trim() || undefined }),
         });
         if (!resp.ok) {
           const data = await resp.json().catch(() => ({})) as Partial<ErrorResponse>;
           const detail = data.detail;
+          // SaaS PATCH: control-plane registration gate (closed / invite-only) answers in English.
+          if (resp.status === 403) throw new Error(t("auth:register_closed"));
+          if (typeof detail === "string" && /invite code/i.test(detail)) throw new Error(t("auth:invite_invalid"));
           throw new Error(typeof detail === "string" ? detail : t("auth:register_failed"));
         }
         const data = await resp.json() as LoginResponse;
@@ -162,6 +166,22 @@ export function LoginPage() {
               minLength={authMode === "register" ? 8 : undefined}
             />
           </div>
+
+          {authMode === "register" && (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="login-invite-code">{t("auth:invite_code")}</Label>
+              <Input
+                id="login-invite-code"
+                type="text"
+                autoComplete="off"
+                spellCheck={false}
+                value={inviteCode}
+                onChange={(e) => setInviteCode(e.target.value)}
+                maxLength={32}
+                placeholder={t("auth:invite_code_hint")}
+              />
+            </div>
+          )}
 
           {error && (
             <p role="alert" aria-live="polite" className="text-sm text-destructive">

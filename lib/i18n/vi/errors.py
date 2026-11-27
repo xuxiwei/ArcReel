@@ -842,6 +842,7 @@ MESSAGES = {
     "object_storage_test_unreachable": "Không thể kết nối lưu trữ đối tượng. Hãy kiểm tra endpoint và mạng rồi thử lại",
     "object_storage_test_failed": "Lưu trữ đối tượng trả về lỗi nên kiểm tra kết nối không đạt",
     "object_storage_connection_in_use": "Kết nối này còn {count} đối tượng ảnh đang được dùng hoặc đang lưu nên không thể đổi bucket, endpoint, vùng hay xóa kết nối; bạn vẫn có thể cập nhật khóa truy cập",
+    "object_storage_tasks_running": "Còn {count} tác vụ tạo đang chờ hoặc đang chạy; đổi bucket, endpoint, vùng hoặc xóa kết nối lúc này sẽ khiến kết quả của chúng không lưu được. Hãy thử lại khi tác vụ xong (vẫn có thể chỉ cập nhật khóa truy cập)",
     "material_storage_object_storage_missing": 'Ảnh mới được đặt để lưu vào lưu trữ đối tượng nhưng chưa cấu hình kết nối lưu trữ đối tượng. Hãy cấu hình kết nối trong mục Thư viện tư liệu và lưu trữ của phần cài đặt, hoặc đặt "Nơi lưu ảnh mới" về cục bộ',
     "material_storage_target_needs_connection": "Hãy cấu hình kết nối lưu trữ đối tượng trước khi lưu ảnh mới vào lưu trữ đối tượng",
     "object_storage_connection_is_new_image_target": 'Ảnh mới đang được lưu vào lưu trữ đối tượng này nên không thể xóa kết nối. Hãy đặt "Nơi lưu ảnh mới" về cục bộ trước rồi xóa kết nối',

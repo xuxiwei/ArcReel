@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Annotated
 
 import jwt
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request, Response
 from fastapi.security import OAuth2PasswordBearer
 from pwdlib import PasswordHash
 from pydantic import BaseModel, ConfigDict
@@ -223,6 +223,9 @@ def create_download_token(username: str, project_name: str) -> str:
         "iat": now,
         "exp": now + DOWNLOAD_TOKEN_EXPIRY_SECONDS,
     }
+    from saas.isolation.download_identity import tenant_claims  # SaaS PATCH: org of the issuer
+
+    payload.update(tenant_claims())
     return jwt.encode(payload, get_token_secret(), algorithm="HS256")
 
 
@@ -535,6 +538,8 @@ def _payload_to_user(payload: dict) -> CurrentUserInfo:
 
 async def get_current_user(
     token: Annotated[str | None, Depends(oauth2_scheme_optional)] = None,
+    request: Request = None,  # type: ignore[assignment]  # SaaS PATCH: media cookie
+    response: Response = None,  # type: ignore[assignment]
 ) -> CurrentUserInfo:
     """标准认证依赖 — 支持 JWT 和 API Key Bearer token。
 
@@ -560,6 +565,9 @@ async def get_current_user(
 
         await ensure_local_saas_user(user.id)
         set_billing_identity(BillingIdentity(user_id=user.id, org_id=user.org_id))
+        from saas.isolation.media_access import refresh_media_cookie
+
+        refresh_media_cookie(request, response, user)
     return user
 
 

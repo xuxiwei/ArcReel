@@ -436,6 +436,8 @@ class API {
   static async getMeWallet(options: { signal?: AbortSignal } = {}): Promise<{
     org_id: string | null;
     username: string | null;
+    /** SaaS: platform admin (control-plane users.is_admin). */
+    is_admin?: boolean;
     wallet: {
       balance: string;
       held: string;
@@ -446,6 +448,21 @@ class API {
     };
   }> {
     return this.request("/me/wallet", { signal: options.signal });
+  }
+
+  /** SaaS 平台管理员：控制面每日对账报告。 */
+  static async getReconciliationReports(limit = 30): Promise<{ items: ReconciliationReportBrief[] }> {
+    return this.request(`/saas/admin/reconciliation?limit=${limit}`);
+  }
+
+  static async getReconciliationReport(reportDate: string): Promise<ReconciliationReport> {
+    return this.request(`/saas/admin/reconciliation/${encodeURIComponent(reportDate)}`);
+  }
+
+  static async runReconciliation(kind: "internal" | "statements", reportDate?: string): Promise<ReconciliationReport> {
+    const path = kind === "internal" ? "/saas/admin/reconciliation/run" : "/saas/admin/reconciliation/statements/run";
+    const qs = reportDate ? `?report_date=${encodeURIComponent(reportDate)}` : "";
+    return this.request(`${path}${qs}`, { method: "POST" });
   }
 
   /** SaaS 充值（人民币）：档位、金额范围、可用渠道。 */
@@ -3987,3 +4004,23 @@ class API {
 }
 
 export { API };
+
+/** SaaS 每日对账报告（控制面 ``/v1/admin/reconciliation``）。 */
+export interface ReconciliationReportBrief {
+  report_date: string;
+  status: "ok" | "issues";
+  issue_counts: Record<string, number>;
+  updated_at: string | null;
+}
+
+export interface ReconciliationIssue {
+  check: string;
+  count: number;
+  truncated: boolean;
+  items: Record<string, unknown>[];
+}
+
+export interface ReconciliationReport extends ReconciliationReportBrief {
+  summary: Record<string, unknown>;
+  issues: ReconciliationIssue[];
+}

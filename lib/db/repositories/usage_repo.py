@@ -187,6 +187,11 @@ def _interrupted_target(task_id: str | None, task_statuses: dict[str, str]) -> t
 
 
 class UsageRepository(BaseRepository):
+    def _scope_query(self, stmt, model):  # SaaS PATCH: members read their own records (saas/isolation/usage_scope.py)
+        from saas.isolation.usage_scope import scope_usage_query
+
+        return scope_usage_query(super()._scope_query(stmt, model), model)
+
     async def update_last_provider_response(self, call_id: int, body: object) -> None:
         await self.session.execute(
             update(ApiCall).where(ApiCall.id == call_id).values(last_provider_response=bound_provider_response(body))

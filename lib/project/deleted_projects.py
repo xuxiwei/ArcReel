@@ -23,6 +23,7 @@ from lib.db.repositories.project_records import parse_deleted_project_name
 from lib.infra.api_errors import NotFoundError
 from lib.infra.data_root_layout import PROJECT_FILENAME, DataRootLayout
 from lib.project.project_manager import project_names_lock
+from saas.isolation.project_names import name_taken_elsewhere  # SaaS PATCH: names unique across orgs
 from lib.project.project_migrations.runner import RecordedEpisodeIds, migrate_project_with_verdict
 from lib.project.project_migrations.staged_swap import tree_size
 from lib.project.project_trash import RETENTION
@@ -117,10 +118,10 @@ def move_out(layout: DataRootLayout, entry_id: str) -> Path:
         candidate = name if suffix == 1 else f"{name}-{suffix}"
         suffix += 1
         target = layout.projects_dir / candidate
-        if target.exists() or target.is_symlink():
+        if target.exists() or target.is_symlink() or name_taken_elsewhere(layout, candidate):
             continue
         with project_names_lock(layout):
-            if target.exists() or target.is_symlink():
+            if target.exists() or target.is_symlink() or name_taken_elsewhere(layout, candidate):
                 continue
             try:
                 return source.rename(target)

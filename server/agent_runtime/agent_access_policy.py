@@ -249,6 +249,19 @@ class AgentAccessPolicy:
             "denyRead": self._build_sensitive_abs_paths() + self._build_data_root_deny_read_abs_paths(),
             "denyWrite": self._build_protected_write_abs_paths(project_cwd),
         }
+        # SaaS PATCH: 多租户下 Bash 还须读不到别的租户的项目、其他会话的 SDK 记录和
+        # 部署配置的主机路径（控制面、备份、同机其他站点）；见 saas/isolation/agent_sandbox.py
+        from saas.adapter.mode import is_saas
+
+        if is_saas():
+            from saas.isolation.agent_sandbox import saas_extra_deny_read
+
+            filesystem["denyRead"] = filesystem["denyRead"] + saas_extra_deny_read(
+                projects_dir=self._layout.projects_dir,
+                project_cwd=project_cwd,
+                sdk_projects_dir=self._claude_projects_dir_resolved,
+                sdk_project_dir_name=self.encode_sdk_project_path(project_cwd),
+            )
         return {
             "enabled": True,
             "autoAllowBashIfSandboxed": True,
@@ -374,6 +387,14 @@ class AgentAccessPolicy:
             upper = name.upper()
             if any(pat in upper for pat in cls._SECRET_ENV_NAME_PATTERNS):
                 keys.add(name)
+        # SaaS PATCH: multi-tenant secrets (control-plane JWT/token, DATABASE_URL, passwords)
+        # 不在上游模式里；见 saas/isolation/agent_sandbox.py
+        from saas.adapter.mode import is_saas
+
+        if is_saas():
+            from saas.isolation.agent_sandbox import saas_secret_env_keys
+
+            keys.update(saas_secret_env_keys())
         return tuple(sorted(keys))
 
     @classmethod

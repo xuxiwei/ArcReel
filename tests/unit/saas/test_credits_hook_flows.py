@@ -76,3 +76,41 @@ async def test_interrupted_release_sends_new_and_legacy_keys(monkeypatch):
     monkeypatch.setattr(ch, "_load_calls", _rows); monkeypatch.setattr(ch, "control_plane_internal_release_by_calls", rel)
     await ch.release_interrupted_calls([7], None)
     assert sent == ["api_call:7:20261126010203000000", "api_call:7"]
+
+@pytest.mark.asyncio
+async def test_settle_retries_transient_control_plane_errors(monkeypatch):
+    attempts = []
+    async def settle(**kw):
+        attempts.append(kw["call_id"])
+        if len(attempts) < 3: raise ControlPlaneError(503, "control plane unreachable")
+        return {}
+    async def no_sleep(_): return None
+    monkeypatch.setattr(ch, "_load_calls", _rows); monkeypatch.setattr(ch, "control_plane_internal_settle", settle)
+    monkeypatch.setattr(ch.asyncio, "sleep", no_sleep)
+    with bind_billing_identity(ID):
+        await ch.settle_api_call_from_db(7, None)
+    # Same key retried until it succeeded; the hold is not left frozen.
+    assert attempts == ["api_call:7:20261126010203000000"] * 3
+
+@pytest.mark.asyncio
+async def test_settle_does_not_retry_client_errors(monkeypatch):
+    attempts = []
+    async def settle(**kw): attempts.append(1); raise ControlPlaneError(409, "hold_not_active")
+    monkeypatch.setattr(ch, "_load_calls", _rows); monkeypatch.setattr(ch, "control_plane_internal_settle", settle)
+    with bind_billing_identity(ID):
+        await ch.settle_api_call_from_db(7, None)
+    assert attempts == [1]
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("cost", "expected"), [(0.2, "settle"), (0, "release"), (None, "release")])
+async def test_failed_call_bills_partial_consumption(monkeypatch, cost, expected):
+    done = []
+    row = SimpleNamespace(**{**ROW.__dict__, "cost_amount": cost})
+    async def rows(f, ids): return [row]
+    async def settle(**kw): done.append("settle"); return {}
+    async def release(**kw): done.append("release"); return {}
+    monkeypatch.setattr(ch, "_load_calls", rows); monkeypatch.setattr(ch, "control_plane_internal_settle", settle)
+    monkeypatch.setattr(ch, "control_plane_internal_release", release)
+    with bind_billing_identity(ID):
+        await ch.finalize_failed_api_call(api_call_id=7, session_factory=None)
+    assert done == [expected]

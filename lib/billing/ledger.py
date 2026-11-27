@@ -50,6 +50,7 @@ from lib.db.repositories.usage_repo import AgentModelCall, SettlementInput, Usag
 from lib.project.project_change_hints import emit_project_change_batch
 from saas.adapter.billing_context import BillingIdentity
 from saas.adapter.credits_hook import (
+    finalize_failed_api_call,
     hold_for_api_call,
     release_agent_turn,
     release_for_api_call,
@@ -265,7 +266,8 @@ class Ledger:
         except Exception as exc:
             if await self._finish_failed(call_id, exc, call._text_requests):
                 self._emit_recorded(project_name, call_id, CallStatus.FAILED)
-            await release_for_api_call(api_call_id=call_id, session_factory=self._session_factory)
+            # SaaS: tokens consumed before the failure are billed; nothing consumed -> release.
+            await finalize_failed_api_call(api_call_id=call_id, session_factory=self._session_factory)
             raise
         else:
             if call._settlement is None:
@@ -279,7 +281,8 @@ class Ledger:
             except Exception as exc:
                 if await self._finish_failed(call_id, exc, call._text_requests):
                     self._emit_recorded(project_name, call_id, CallStatus.FAILED)
-                await release_for_api_call(api_call_id=call_id, session_factory=self._session_factory)
+                # SaaS: the provider call succeeded; bill what was recorded, else release.
+                await finalize_failed_api_call(api_call_id=call_id, session_factory=self._session_factory)
                 raise
             self._emit_recorded(project_name, call_id, CallStatus.SUCCESS)
             await settle_api_call_from_db(call_id, self._session_factory)
