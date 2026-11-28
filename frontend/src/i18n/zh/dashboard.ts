@@ -827,6 +827,7 @@ export default {
   'usage_kpi_success_rate': '成功率',
   'usage_kpi_failed': '失败数',
   'usage_kpi_cost': '参考费用',
+  'usage_kpi_credits': '消耗积分',
   'usage_kpi_project_all': '本项目 · 全部',
   'usage_kpi_success_count': '{{count}} 成功',
   'usage_kpi_cancelled_count': '另 {{count}} 次取消',

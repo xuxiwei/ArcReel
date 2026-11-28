@@ -870,6 +870,16 @@ app.include_router(
     tags=["SaaS 管理"],
 )
 
+# SaaS PATCH: the rates that turn usage costs into credits, for any signed-in user (404 when self-hosted).
+from saas.adapter.routes_credit_rates import router as saas_credit_rates_router  # noqa: E402
+
+app.include_router(
+    saas_credit_rates_router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user)],
+    tags=["SaaS 积分"],
+)
+
 # SaaS PATCH: download_token links resolve the project in the issuer's org (no-op when self-hosted).
 from saas.isolation.download_identity import bind_download_identity  # noqa: E402
 

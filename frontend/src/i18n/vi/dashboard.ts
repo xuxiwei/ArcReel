@@ -822,6 +822,7 @@ export default {
   'usage_kpi_success_rate': 'Tỉ lệ thành công',
   'usage_kpi_failed': 'Thất bại',
   'usage_kpi_cost': 'Chi phí tham khảo',
+  'usage_kpi_credits': 'Tín dụng đã dùng',
   'usage_kpi_project_all': 'Dự án này · Toàn bộ',
   'usage_kpi_success_count': '{{count}} thành công',
   'usage_kpi_cancelled_count': '{{count}} đã hủy',

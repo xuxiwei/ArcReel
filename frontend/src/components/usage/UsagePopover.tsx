@@ -12,6 +12,7 @@ import { TruncatedText } from "@/components/shared/TruncatedText";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle } from "@/components/ui/popover";
 import { useAppStore } from "@/stores/app-store";
+import { useCostInCredits } from "@/stores/credit-rates-store";
 import { selectActiveTasks, useTasksStore } from "@/stores/tasks-store";
 import { useUsageHeaderStore } from "@/stores/usage-header-store";
 import type { TaskItem, UsageSummary } from "@/types";
@@ -58,6 +59,8 @@ function KpiStrip({ summary }: { summary: UsageSummary | null }) {
   const otherCosts = Object.entries(kpi?.cost ?? {}).filter(
     ([currency, amount]) => currency !== primary && amount > 0,
   );
+  // SaaS: the cost shown as the credits it was charged as.
+  const credits = useCostInCredits(kpi?.cost);
   return (
     <dl className="grid grid-cols-4 divide-x divide-border rounded-lg border border-border">
       <KpiCell
@@ -80,13 +83,19 @@ function KpiStrip({ summary }: { summary: UsageSummary | null }) {
         }
       />
       <KpiCell
-        label={t("usage_kpi_cost")}
+        label={credits !== null ? t("usage_kpi_credits") : t("usage_kpi_cost")}
         value={
-          kpi && primary ? formatCurrencyAmount(primary, kpi.cost[primary] ?? 0) : "—"
+          kpi && credits !== null
+            ? t("credits_balance_badge", { balance: credits })
+            : kpi && primary
+              ? formatCurrencyAmount(primary, kpi.cost[primary] ?? 0)
+              : "—"
         }
         sub={
           [
-            ...otherCosts.map(([currency, amount]) => `+ ${formatCurrencyAmount(currency, amount)}`),
+            ...(credits === null
+              ? otherCosts.map(([currency, amount]) => `+ ${formatCurrencyAmount(currency, amount)}`)
+              : []),
             ...(kpi && kpi.unpriced_calls > 0
               ? [t("usage_kpi_unpriced_count", { count: kpi.unpriced_calls })]
               : []),

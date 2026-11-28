@@ -827,6 +827,7 @@ export default {
   'usage_kpi_success_rate': 'Success rate',
   'usage_kpi_failed': 'Failed',
   'usage_kpi_cost': 'Ref. cost',
+  'usage_kpi_credits': 'Credits used',
   'usage_kpi_project_all': 'This project · All time',
   'usage_kpi_success_count': '{{count}} succeeded',
   'usage_kpi_cancelled_count': '{{count}} cancelled',

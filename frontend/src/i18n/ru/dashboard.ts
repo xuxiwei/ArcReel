@@ -847,6 +847,7 @@ export default {
   'usage_kpi_success_rate': 'Доля успешных',
   'usage_kpi_failed': 'С ошибкой',
   'usage_kpi_cost': 'Справ. стоимость',
+  'usage_kpi_credits': 'Списано кредитов',
   'usage_kpi_project_all': 'Этот проект · За всё время',
   'usage_kpi_success_count': 'Успешно: {{count}}',
   'usage_kpi_cancelled_count': 'Отменено: {{count}}',
