@@ -131,6 +131,12 @@ async def anthropic_platform_env() -> dict[str, str]:
     if not is_saas():
         return {}
     overlays = await provider_secret_overlays()
+    from saas.adapter.agent_config import configured_agent_env
+
+    # The console's Agent config (platform key + endpoint + model) wins when set.
+    configured = await configured_agent_env(overlays)
+    if configured:
+        return configured
     for key in ("anthropic", "claude", "agent"):
         secrets = overlays.get(key)
         if secrets and secrets.get("api_key"):

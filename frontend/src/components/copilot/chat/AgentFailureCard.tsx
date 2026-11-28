@@ -6,6 +6,7 @@ import { Link } from "wouter";
 import { settingsSectionPath } from "@/app-routes";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { useIsSaas } from "@/stores/saas-role-store";
 import type { FailureObservation } from "@/types";
 import { copyText } from "@/utils/clipboard";
 
@@ -55,6 +56,8 @@ function display(value: unknown, fallback: string): string {
 
 export function AgentFailureCard({ failure, announce = false, onRetry }: Readonly<AgentFailureCardProps>) {
   const { t } = useTranslation("dashboard");
+  // SaaS: the Agent's model is set by the platform admin in the control-plane console, not here.
+  const saas = useIsSaas();
   const [copied, setCopied] = useState(false);
   const titleId = useId();
   const startup = failure.phase === "startup";
@@ -106,13 +109,15 @@ export function AgentFailureCard({ failure, announce = false, onRetry }: Readonl
               {t("agent_failure_retry_startup")}
             </Button>
           )}
-          <Link
-            href={`~${settingsSectionPath("arcreel-agent")}`}
-            className={buttonVariants({ variant: "ghost", size: "xs" })}
-          >
-            <Settings data-icon="inline-start" aria-hidden />
-            {t("agent_failure_open_settings")}
-          </Link>
+          {!saas && (
+            <Link
+              href={`~${settingsSectionPath("arcreel-agent")}`}
+              className={buttonVariants({ variant: "ghost", size: "xs" })}
+            >
+              <Settings data-icon="inline-start" aria-hidden />
+              {t("agent_failure_open_settings")}
+            </Link>
+          )}
           <Button variant="ghost" size="xs" onClick={copy}>
             {copied ? <Check data-icon="inline-start" aria-hidden /> : <Copy data-icon="inline-start" aria-hidden />}
             {t(copied ? "agent_failure_copied" : "agent_failure_copy")}

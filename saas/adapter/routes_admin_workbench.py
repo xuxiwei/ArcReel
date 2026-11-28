@@ -6,7 +6,9 @@ scoped to the caller's organisation; these routes are the deliberate exceptions 
 - ``GET /saas/admin/assets`` lists the global asset library of every organisation (or one ``org_id``);
 - ``DELETE /saas/admin/assets/{id}`` deletes one entry through the normal delete path, run as that
   entry's organisation so links, remote objects and files are released exactly as for its owner;
-- ``GET /saas/admin/users/{user_id}/activity`` summarises one user's projects and generation calls.
+- ``GET /saas/admin/users/{user_id}/activity`` summarises one user's projects and generation calls;
+- ``GET|PUT /saas/admin/agent`` reads and saves the ArcReel Agent's platform key, endpoint and model
+  (:mod:`saas.adapter.agent_config`); ``POST /saas/admin/agent/test`` sends it one tiny request.
 
 404 when self-hosted.
 """
@@ -18,6 +20,7 @@ from datetime import UTC
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import case, func, select
 
 from lib.db import async_session_factory
@@ -196,3 +199,98 @@ async def user_activity(
             for c in recent
         ],
     }
+
+
+# ---- ArcReel Agent model (console: 系统 → Agent 模型) ----
+
+
+class AgentConfigBody(BaseModel):
+    key_provider: str = ""
+    base_url: str = ""
+    model: str = ""
+    haiku_model: str = ""
+    sonnet_model: str = ""
+    opus_model: str = ""
+    subagent_model: str = ""
+
+
+async def _agent_payload() -> dict[str, Any]:
+    from lib.agent.agent_provider_catalog import list_presets
+    from saas.adapter import agent_config
+    from saas.adapter.platform_keys import provider_secret_overlays
+
+    try:
+        overlays = await provider_secret_overlays()
+    except Exception:  # control plane down: still show the saved config
+        overlays = {}
+    return {
+        "config": await agent_config.load_config(),
+        "key_providers": sorted(name for name, o in overlays.items() if o.get("api_key")),
+        "presets": [
+            {
+                "id": p.id,
+                "display_name": p.display_name,
+                "base_url": p.messages_url,
+                "default_model": p.default_model,
+                "suggested_models": list(p.suggested_models),
+            }
+            for p in list_presets()
+        ],
+    }
+
+
+@router.get("/agent")
+async def get_agent_config() -> dict[str, Any]:
+    _require_saas()
+    return await _agent_payload()
+
+
+@router.put("/agent")
+async def put_agent_config(body: AgentConfigBody) -> dict[str, Any]:
+    _require_saas()
+    from saas.adapter import agent_config
+
+    values = body.model_dump()
+    values = {k: v.strip() for k, v in values.items()}
+    if values["key_provider"]:
+        if not values["base_url"].startswith(("https://", "http://")):
+            raise HTTPException(status_code=422, detail="接口地址要以 https:// 开头")
+        if not values["model"]:
+            raise HTTPException(status_code=422, detail="请填写模型")
+    await agent_config.save_config(values)
+    return await _agent_payload()
+
+
+@router.post("/agent/test")
+async def test_agent_config() -> dict[str, Any]:
+    """One tiny Messages request with the saved config; the reply says whether the key, endpoint and model work."""
+    _require_saas()
+    import httpx
+
+    from saas.adapter import agent_config
+    from saas.adapter.platform_keys import clear_platform_key_cache, provider_secret_overlays
+
+    clear_platform_key_cache()
+    env = await agent_config.configured_agent_env(await provider_secret_overlays())
+    if not env:
+        return {"ok": False, "message": "还没配置完整：要选平台 Key、填接口地址和模型，并且那个平台 Key 处于启用状态"}
+    url = env["ANTHROPIC_BASE_URL"].rstrip("/") + "/v1/messages"
+    headers = {
+        "x-api-key": env["ANTHROPIC_API_KEY"],
+        "authorization": f"Bearer {env['ANTHROPIC_API_KEY']}",
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+    payload = {"model": env["ANTHROPIC_MODEL"], "max_tokens": 8, "messages": [{"role": "user", "content": "hi"}]}
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            res = await client.post(url, headers=headers, json=payload)
+    except httpx.HTTPError as exc:
+        return {"ok": False, "message": f"连不上 {url}：{type(exc).__name__}"}
+    if res.status_code == 200:
+        return {"ok": True, "message": f"通过：{env['ANTHROPIC_MODEL']} 正常回复"}
+    try:
+        detail = res.json().get("error", {}).get("message") or res.text
+    except ValueError:
+        detail = res.text
+    return {"ok": False, "message": f"HTTP {res.status_code}：{str(detail)[:300]}"}
