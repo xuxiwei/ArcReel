@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { ROUTE_APP_ASSETS, ROUTE_APP_PROJECTS, ROUTE_APP_SETTINGS, episodeEditViewPath } from "@/app-routes";
 import { CreditsBalanceBadge } from "@/components/shared/CreditsBalanceBadge";
 import { DocsIconLink } from "@/components/shared/DocsIconLink";
+import { LogoutButton } from "@/components/shared/LogoutButton";
 import { UsageHeaderEntry } from "@/components/usage/UsageHeaderEntry";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -145,6 +146,7 @@ export function GlobalHeader() {
             />
           )}
         </IconLink>
+        <LogoutButton tooltipSide="bottom" />
         <AgentPanelToggle />
       </div>
       {projectExport.element}
