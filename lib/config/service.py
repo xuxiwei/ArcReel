@@ -156,9 +156,14 @@ class ConfigService:
         active_creds = await cred_repo.get_active_credentials_bulk()
         credential_counts = await cred_repo.count_by_provider_bulk()
         disabled = await disabled_builtin_models(self._provider_repo.session)
+        from saas.adapter.platform_keys import platform_ready_providers
+
+        # SaaS: a provider configured by an active platform key is ready too.
+        platform_ready = await platform_ready_providers()
         statuses = []
         for name, meta in PROVIDER_REGISTRY.items():
-            status: Literal["ready", "unconfigured", "error"] = "ready" if name in active_creds else "unconfigured"
+            ready = name in active_creds or name in platform_ready
+            status: Literal["ready", "unconfigured", "error"] = "ready" if ready else "unconfigured"
             models_dict = {mid: asdict(mi) for mid, mi in catalog.list_models(name).items()}
             statuses.append(
                 ProviderStatus(

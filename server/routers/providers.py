@@ -463,6 +463,11 @@ async def get_provider_config(
 
     cred_repo = CredentialRepository(session)
     has_active = await cred_repo.has_active_credential(provider_id)
+    if not has_active:
+        from saas.adapter.platform_keys import platform_ready_providers
+
+        # SaaS: a provider configured by an active platform key is ready too.
+        has_active = provider_id in await platform_ready_providers()
     status = "ready" if has_active else "unconfigured"
 
     fields: list[FieldInfo] = []

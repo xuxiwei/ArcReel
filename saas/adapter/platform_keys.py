@@ -79,6 +79,32 @@ async def provider_secret_overlays() -> dict[str, dict[str, str]]:
     return result
 
 
+async def platform_ready_providers() -> frozenset[str]:
+    """Built-in providers an active platform key fully configures (SaaS only).
+
+    The workbench marks a provider "ready" from its own credential table, which SaaS
+    tenants never fill (BYOK is off). Without this, a provider the platform pays for
+    shows as unconfigured and none of its models can be picked. A provider counts
+    when the platform overlay carries every key the registry requires.
+
+    Listing pages must keep working while the control plane is down, so a failed
+    fetch here yields "none" instead of an error; generation still fails closed.
+    """
+    if not is_saas():
+        return frozenset()
+    try:
+        overlays = await provider_secret_overlays()
+    except ApiError:
+        return frozenset()
+    from lib.config.registry import PROVIDER_REGISTRY
+
+    return frozenset(
+        name
+        for name, overlay in overlays.items()
+        if name in PROVIDER_REGISTRY and all(overlay.get(key) for key in PROVIDER_REGISTRY[name].required_keys)
+    )
+
+
 async def inject_platform_keys(config: dict[str, str], provider_id: str) -> dict[str, str]:
     """Overlay platform secrets onto a provider config (SaaS only; platform wins)."""
     if not is_saas():

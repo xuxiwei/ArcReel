@@ -15,7 +15,8 @@
 | `lib/generation/generation_worker.py` | 执行时恢复 billing context | 已改 |
 | `lib/billing/ledger.py` | 计费括号旁路 hold/settle/release | 已改 |
 | `lib/config/resolver.py` | SaaS 叠加平台 Key | 已改 |
-| `server/routers/providers.py` | SaaS 禁止 BYOK | 已改 |
+| `server/routers/providers.py` | SaaS 禁止 BYOK；平台 Key 配好的供应商显示为就绪 | 已改 |
+| `lib/config/service.py` | SaaS：平台 Key 配好的供应商算作 ready（可选模型、默认模型才看得到） | 已改 |
 | `server/agent_runtime/options_assembler.py` | Agent 平台 Key | 已改 |
 | `frontend/.../CredentialList.tsx` | SaaS 隐藏添加密钥 | 已改 |
 | `lib/project/project_manager.py` | SaaS 委托 org 隔离 ProjectManager | 已改 |
