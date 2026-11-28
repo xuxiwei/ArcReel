@@ -772,8 +772,9 @@ export default {
 
   'save_failed': 'Lưu thất bại: {{message}}',
 
-  'credits_balance_aria': 'Số dư {{balance}}, đang tạm giữ {{held}}',
-  'credits_balance_tooltip': 'Khả dụng {{balance}} ({{credits}} tín dụng) · Tạm giữ {{held}}',
+  'credits_balance_aria': 'Số dư {{balance}} tín dụng, đang tạm giữ {{held}} tín dụng',
+  'credits_balance_tooltip': 'Khả dụng {{balance}} tín dụng · Tạm giữ {{held}} tín dụng',
+  'credits_balance_badge': '{{balance}} tín dụng',
   'recharge_title': 'Nạp tiền',
   'recharge_desc': '¥1 = {{rate}} tín dụng. Số tiền tính bằng nhân dân tệ (CNY).',
   'recharge_custom': 'Số tiền tùy chọn (¥{{min}}–¥{{max}})',

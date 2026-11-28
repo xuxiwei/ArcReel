@@ -778,8 +778,9 @@ export default {
 
   'save_failed': 'Failed to save: {{message}}',
 
-  'credits_balance_aria': 'Balance {{balance}}, held {{held}}',
-  'credits_balance_tooltip': 'Available {{balance}} ({{credits}} credits) · Held {{held}}',
+  'credits_balance_aria': 'Balance {{balance}} credits, held {{held}} credits',
+  'credits_balance_tooltip': 'Available {{balance}} credits · Held {{held}} credits',
+  'credits_balance_badge': '{{balance}} credits',
   'recharge_title': 'Top up',
   'recharge_desc': '¥1 = {{rate}} credits. Amounts are in CNY.',
   'recharge_custom': 'Custom amount (¥{{min}}–¥{{max}})',

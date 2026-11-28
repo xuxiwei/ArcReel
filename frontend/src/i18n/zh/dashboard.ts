@@ -778,8 +778,9 @@ export default {
 
   'save_failed': '保存失败：{{message}}',
 
-  'credits_balance_aria': '余额 {{balance}}，冻结 {{held}}',
-  'credits_balance_tooltip': '可用 {{balance}}（{{credits}} 积分）· 冻结 {{held}}',
+  'credits_balance_aria': '余额 {{balance}} 积分，冻结 {{held}} 积分',
+  'credits_balance_tooltip': '可用 {{balance}} 积分 · 冻结 {{held}} 积分',
+  'credits_balance_badge': '{{balance}} 积分',
   'recharge_title': '充值',
   'recharge_desc': '1 元 = {{rate}} 积分，金额单位人民币',
   'recharge_custom': '自定义金额（¥{{min}}–¥{{max}}）',

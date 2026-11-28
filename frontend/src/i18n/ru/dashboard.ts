@@ -797,8 +797,9 @@ export default {
 
   'save_failed': 'Не удалось сохранить: {{message}}',
 
-  'credits_balance_aria': 'Баланс {{balance}}, заморожено {{held}}',
-  'credits_balance_tooltip': 'Доступно {{balance}} ({{credits}} кредитов) · Заморожено {{held}}',
+  'credits_balance_aria': 'Баланс {{balance}} кредитов, заморожено {{held}} кредитов',
+  'credits_balance_tooltip': 'Доступно {{balance}} кредитов · Заморожено {{held}} кредитов',
+  'credits_balance_badge': '{{balance}} кредитов',
   'recharge_title': 'Пополнение',
   'recharge_desc': '¥1 = {{rate}} кредитов. Суммы указаны в юанях (CNY).',
   'recharge_custom': 'Своя сумма (¥{{min}}–¥{{max}})',
