@@ -7,6 +7,7 @@ import { SpeechRateField } from "@/components/shared/SpeechRateField";
 import { ModelConfigSection, type ModelConfigValue } from "@/components/shared/ModelConfigSection";
 import { NarrationDeliveryFields } from "@/components/shared/NarrationDeliveryFields";
 import type { NarrationDeliveryValue } from "@/components/shared/narration-delivery";
+import { useIsRestrictedMember } from "@/stores/saas-role-store";
 import type { AutoBackendsResponse, ProviderInfo, NarrationDefaultsResponse } from "@/types";
 import type { CustomProviderInfo } from "@/types/custom-provider";
 import { WizardSection } from "./WizardSection";
@@ -69,6 +70,9 @@ export function WizardStepGeneration({
   error,
 }: WizardStepGenerationProps) {
   const { t } = useTranslation(["dashboard", "common"]);
+  // SaaS members don't pick models or TTS voices: the project follows the platform defaults
+  // the admin set. They still choose between TTS and post-production narration.
+  const restricted = useIsRestrictedMember();
 
   return (
     <div className="flex flex-col gap-6">
@@ -95,39 +99,41 @@ export function WizardStepGeneration({
         </div>
       </WizardSection>
 
-      <WizardSection title={t("wizard_models_title")}>
-        {!data && !error && (
-          <p className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" aria-hidden />
-            {t("wizard_models_loading")}
-          </p>
-        )}
-        {error && (
-          <Alert variant="destructive">
-            <AlertTitle>{t("wizard_models_load_failed")}</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-        {data && (
-          <ModelConfigSection
-            showSubFields={false}
-            value={models}
-            onChange={onModelsChange}
-            providers={data.providers}
-            customProviders={data.customProviders}
-            options={{
-              videoBackends: data.options.video,
-              imageBackends: data.options.image,
-              textBackends: data.options.text,
-              providerNames: data.options.providerNames,
-              modelNames: data.options.modelNames,
-            }}
-            globalDefaults={data.globalDefaults}
-            usesReferenceImages={usesReferenceImages}
-            enable={isAd ? { duration: false } : undefined}
-          />
-        )}
-      </WizardSection>
+      {!restricted && (
+        <WizardSection title={t("wizard_models_title")}>
+          {!data && !error && (
+            <p className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+              {t("wizard_models_loading")}
+            </p>
+          )}
+          {error && (
+            <Alert variant="destructive">
+              <AlertTitle>{t("wizard_models_load_failed")}</AlertTitle>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+          {data && (
+            <ModelConfigSection
+              showSubFields={false}
+              value={models}
+              onChange={onModelsChange}
+              providers={data.providers}
+              customProviders={data.customProviders}
+              options={{
+                videoBackends: data.options.video,
+                imageBackends: data.options.image,
+                textBackends: data.options.text,
+                providerNames: data.options.providerNames,
+                modelNames: data.options.modelNames,
+              }}
+              globalDefaults={data.globalDefaults}
+              usesReferenceImages={usesReferenceImages}
+              enable={isAd ? { duration: false } : undefined}
+            />
+          )}
+        </WizardSection>
+      )}
 
       {data && (
         <WizardSection title={t("project_narration_delivery_title")}>
@@ -138,6 +144,7 @@ export function WizardStepGeneration({
             audioBackends={data.options.audio}
             providerNames={data.options.providerNames}
             modelNames={data.options.modelNames}
+            deliveryOnly={restricted}
           />
         </WizardSection>
       )}

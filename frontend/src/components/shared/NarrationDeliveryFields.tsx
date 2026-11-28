@@ -28,6 +28,8 @@ interface Props {
   providerNames: Record<string, string>;
   modelNames: Record<string, string>;
   lifecycle?: ModelLifecycleNotices;
+  /** Only the TTS / post-production choice; model and voice follow the platform defaults. */
+  deliveryOnly?: boolean;
 }
 
 function DeliverySelector({ delivery, onChange }: {
@@ -118,7 +120,16 @@ function NarrationSettingsSource({ value, defaults, onChange }: Pick<Props, "val
   );
 }
 
-export function NarrationDeliveryFields({ defaults, value, onChange, audioBackends, providerNames, modelNames, lifecycle }: Props) {
+export function NarrationDeliveryFields({
+  defaults,
+  value,
+  onChange,
+  audioBackends,
+  providerNames,
+  modelNames,
+  lifecycle,
+  deliveryOnly = false,
+}: Props) {
   const { t } = useTranslation("dashboard");
   const idBase = useId();
   const voiceId = `${idBase}-voice`;
@@ -138,6 +149,10 @@ export function NarrationDeliveryFields({ defaults, value, onChange, audioBacken
     onChange({ ...value, audioBackend, narrationVoice: "", narrationSpeed: null });
   };
   const problem = narrationDeliveryProblem(value);
+
+  if (deliveryOnly) {
+    return <DeliverySelector delivery={value.delivery} onChange={(delivery) => onChange({ ...value, delivery })} />;
+  }
 
   return (
     <div className="flex flex-col gap-4">
