@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { API } from "@/api";
+import { ApiRequestError } from "@/api/errors";
 
 interface CreditsBalanceState {
   enabled: boolean;
@@ -31,7 +32,9 @@ export const useCreditsBalanceStore = create<CreditsBalanceState>((set) => ({
     try {
       const statusRes = await fetch("/api/v1/auth/status");
       if (!statusRes.ok) {
-        if (seq === refreshSeq) set({ enabled: false, loading: false, balance: null, held: null });
+        if (seq === refreshSeq) {
+          set({ enabled: false, loading: false, balance: null, held: null, balanceCny: null, heldCny: null });
+        }
         return;
       }
       const statusPayload: unknown = await statusRes.json();
@@ -40,7 +43,9 @@ export const useCreditsBalanceStore = create<CreditsBalanceState>((set) => ({
         statusPayload !== null &&
         (statusPayload as { deployment_mode?: unknown }).deployment_mode === "saas";
       if (!saas) {
-        if (seq === refreshSeq) set({ enabled: false, loading: false, balance: null, held: null });
+        if (seq === refreshSeq) {
+          set({ enabled: false, loading: false, balance: null, held: null, balanceCny: null, heldCny: null });
+        }
         return;
       }
       const me = await API.getMeWallet();
@@ -57,9 +62,17 @@ export const useCreditsBalanceStore = create<CreditsBalanceState>((set) => ({
     } catch (err) {
       if (seq !== refreshSeq) return;
       const message = err instanceof Error ? err.message : String(err);
-      // 404 = self-hosted or route missing
-      if (message.includes("404")) {
-        set({ enabled: false, loading: false, balance: null, held: null, error: null });
+      // 404 = self-hosted or route missing (the message is the server's detail text, not the status)
+      if (err instanceof ApiRequestError && err.status === 404) {
+        set({
+          enabled: false,
+          loading: false,
+          balance: null,
+          held: null,
+          balanceCny: null,
+          heldCny: null,
+          error: null,
+        });
         return;
       }
       set({ enabled: true, loading: false, error: message });

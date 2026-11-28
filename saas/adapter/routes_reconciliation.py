@@ -25,15 +25,18 @@ def _token(request: Request) -> str:
 async def _forward(request: Request, method: str, path: str, params: dict[str, Any] | None = None) -> Any:
     if not is_saas():
         raise HTTPException(status_code=404, detail="reconciliation is only available in saas mode")
-    from saas.adapter.control_plane_client import ControlPlaneError, control_plane_user_request
+    from saas.adapter.control_plane_client import (
+        ControlPlaneError,
+        control_plane_user_request,
+        http_exception_for_user_proxy,
+    )
 
     query = {k: v for k, v in (params or {}).items() if v is not None}
     url = f"/v1/admin/reconciliation{path}" + (f"?{urlencode(query)}" if query else "")
     try:
         return await control_plane_user_request(method, url, access_token=_token(request))
     except ControlPlaneError as exc:
-        status = exc.status_code if 400 <= exc.status_code < 500 else 503
-        raise HTTPException(status_code=status, detail=exc.detail) from exc
+        raise http_exception_for_user_proxy(exc) from exc
 
 
 @router.get("")

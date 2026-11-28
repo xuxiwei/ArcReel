@@ -17,6 +17,7 @@ from saas.adapter.control_plane_client import (
     control_plane_login,
     control_plane_me,
     control_plane_register,
+    http_exception_for_user_proxy,
 )
 from saas.adapter.mode import get_deployment_mode, is_saas
 from server.auth import (
@@ -243,10 +244,17 @@ async def me_wallet(request: Request, current_user: CurrentUser):
     if not is_saas():
         raise HTTPException(status_code=404, detail="wallet is only available in saas mode")
     try:
-        data = await control_plane_me(access_token=_bearer_token(request))
+        access_token = _bearer_token(request)
+    except HTTPException as exc:
+        # ``AUTH_ENABLED=false`` yields an anonymous CurrentUser with no Bearer;
+        # that is not a session logout signal for the SPA.
+        if exc.status_code == 401:
+            raise HTTPException(status_code=503, detail="control_plane_token_missing") from exc
+        raise
+    try:
+        data = await control_plane_me(access_token=access_token)
     except ControlPlaneError as exc:
-        status = exc.status_code if 400 <= exc.status_code < 500 else 503
-        raise HTTPException(status_code=status, detail=exc.detail) from exc
+        raise http_exception_for_user_proxy(exc) from exc
     wallet = data.get("wallet") if isinstance(data, dict) else None
     if not isinstance(wallet, dict):
         raise HTTPException(status_code=502, detail="control plane me missing wallet")
@@ -280,12 +288,17 @@ async def _recharge_proxy(request: Request, method: str, path: str, body: dict |
     from saas.adapter.control_plane_client import control_plane_user_request
 
     try:
+        access_token = _bearer_token(request)
+    except HTTPException as exc:
+        if exc.status_code == 401:
+            raise HTTPException(status_code=503, detail="control_plane_token_missing") from exc
+        raise
+    try:
         return await control_plane_user_request(
-            method, path, access_token=_bearer_token(request), json_body=body
+            method, path, access_token=access_token, json_body=body
         )
     except ControlPlaneError as exc:
-        status = exc.status_code if 400 <= exc.status_code < 500 else 503
-        raise HTTPException(status_code=status, detail=exc.detail) from exc
+        raise http_exception_for_user_proxy(exc) from exc
 
 
 @router.get("/me/recharge/options")

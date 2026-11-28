@@ -27,6 +27,20 @@ class ControlPlaneError(Exception):
         self.retry_after = retry_after
 
 
+def http_exception_for_user_proxy(exc: ControlPlaneError):
+    """Map CP errors for routes that already passed workbench ``CurrentUser``.
+
+    A control-plane 401/403 must not become a workbench 401: the SPA treats every
+    401 as session expiry, clears the token, and bounce-loops login ↔ app.
+    """
+    from fastapi import HTTPException
+
+    if exc.status_code in {401, 403}:
+        return HTTPException(status_code=503, detail="control_plane_unauthorized")
+    status = exc.status_code if 400 <= exc.status_code < 500 else 503
+    return HTTPException(status_code=status, detail=exc.detail)
+
+
 def get_control_plane_base_url() -> str:
     from urllib.parse import urlparse
 

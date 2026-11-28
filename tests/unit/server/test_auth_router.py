@@ -122,3 +122,30 @@ class TestSaasLoginRateLimitMapping:
         assert resp.status_code == 429
         assert resp.json()["detail"] == "rate limit exceeded"
         assert resp.headers.get("retry-after") == "60"
+
+
+class TestMeWalletControlPlaneAuth:
+    def test_cp_401_maps_to_503_not_workbench_logout(self):
+        """Control-plane 401 after CurrentUser must not look like session expiry."""
+        from saas.adapter.control_plane_client import ControlPlaneError
+        from server.auth import CurrentUserInfo, get_current_user
+
+        async def _boom(*, access_token: str):
+            raise ControlPlaneError(401, "invalid token")
+
+        app = FastAPI()
+        app.include_router(auth_router.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(
+            id="u1", sub="u1", role="member", org_id="o1"
+        )
+        with (
+            patch("server.routers.auth.is_saas", return_value=True),
+            patch("server.routers.auth.control_plane_me", side_effect=_boom),
+            TestClient(app) as client,
+        ):
+            resp = client.get(
+                "/api/v1/me/wallet",
+                headers={"Authorization": "Bearer fake-token"},
+            )
+        assert resp.status_code == 503
+        assert resp.json()["detail"] == "control_plane_unauthorized"
