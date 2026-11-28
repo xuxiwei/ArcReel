@@ -19,9 +19,13 @@ async def load_builtin_config(resolver: ConfigResolver, provider_id: str, rate_l
     之后 sync 构造只读信封。
     """
     db_config, credential_id = await resolver.provider_config_with_credential(provider_id)
+    from saas.adapter.asset_library_platform import PLATFORM_CREDENTIAL_TYPE, platform_credential_id
+
+    platform_id = await platform_credential_id(provider_id, dict(db_config))
     return LoadedConfig(
         credentials=dict(db_config),
         provider_meta=PROVIDER_REGISTRY.get(provider_id),
         rate_limiter=rate_limiter,
-        credential_id=credential_id,
+        credential_id=platform_id if platform_id is not None else credential_id,
+        credential_type=PLATFORM_CREDENTIAL_TYPE if platform_id is not None else "builtin",
     )

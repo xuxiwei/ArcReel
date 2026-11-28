@@ -99,6 +99,10 @@ async def call_scope(session: AsyncSession, backend: object) -> AssetLibraryScop
     credential = inference_credential(backend)
     if credential is None:
         return None
+    from saas.adapter.asset_library_platform import asset_library_enabled
+
+    if not await asset_library_enabled(session):
+        return None
     return await resolve_bound_scope(
         session,
         credential_type=credential.credential_type,
@@ -185,6 +189,8 @@ async def choose_in_scope(
     """在已求得的素材库范围里为参考图选择，规则与异常同 :func:`choose_reference_image_assets`。"""
     if not sources:
         return ()
+    from saas.adapter.asset_library_platform import fall_back_on_failed_link
+
     async with session_factory() as session:
         content_version_ids = await asyncio.to_thread(_content_version_ids, project_path, sources)
         choices: list[ReferenceAssetChoice | None] = []
@@ -199,6 +205,9 @@ async def choose_in_scope(
                 choices.append(None)
                 continue
             uri = asset_uri(link)
+            if link.state == "failed" and fall_back_on_failed_link():
+                choices.append(None)
+                continue
             if not is_usable(link) or uri is None:
                 raise ProviderAssetLinkUnavailableError(link, index=position + 1, name=source.name)
             choices.append(ReferenceAssetChoice(asset_uri=uri, content_version_id=content_version_id, link_id=link.id))

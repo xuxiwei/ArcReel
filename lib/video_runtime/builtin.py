@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from lib.backends.kling_shared import kling_auth_mode
 from lib.backends.minimax_shared import MINIMAX_BASE_URL, resolve_minimax_api_key
@@ -214,7 +214,7 @@ def build_builtin_video(
             kwargs.update(access_key=credentials.get("access_key"), secret_key=credentials.get("secret_key"))
     if provider_id in {"ark", "ark-agent-plan"} and config.credential_id is not None and api_key:
         kwargs["inference_credential"] = InferenceCredentialRef(
-            credential_type="builtin",
+            credential_type=cast(Literal["builtin", "custom", "platform"], config.credential_type),
             credential_id=config.credential_id,
             api_key=api_key,
             base_url=credentials.get("base_url"),

@@ -22,7 +22,7 @@ from lib.db.repositories.asset_library_repo import AssetLibraryRepository
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 
-CredentialType = Literal["builtin", "custom"]
+CredentialType = Literal["builtin", "custom", "platform"]
 
 BINDABLE_BUILTIN_PROVIDERS: tuple[str, ...] = ("ark", "ark-agent-plan")
 
@@ -153,6 +153,9 @@ async def list_bindable_credentials(session: AsyncSession) -> list[InferenceCred
         )
         for custom in await CustomProviderRepository(session).list_providers()
     )
+    from saas.adapter.asset_library_platform import platform_bindable_credentials
+
+    credentials.extend(await platform_bindable_credentials())
     return credentials
 
 

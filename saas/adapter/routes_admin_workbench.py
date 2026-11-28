@@ -302,3 +302,29 @@ async def test_agent_config() -> dict[str, Any]:
     except ValueError:
         detail = res.text
     return {"ok": False, "message": f"HTTP {res.status_code}：{str(detail)[:300]}"}
+
+
+# --- Ark asset library master switch (saas/adapter/asset_library_platform.py) ---
+
+
+class AssetLibrarySwitchBody(BaseModel):
+    enabled: bool
+
+
+@router.get("/asset-library-switch")
+async def get_asset_library_switch() -> dict[str, bool]:
+    from saas.adapter.asset_library_platform import asset_library_enabled
+
+    async with async_session_factory() as session:
+        return {"enabled": await asset_library_enabled(session)}
+
+
+@router.put("/asset-library-switch")
+async def put_asset_library_switch(body: AssetLibrarySwitchBody) -> dict[str, bool]:
+    """Off: every generation sends reference images as image content; bindings and links are kept."""
+    from saas.adapter.asset_library_platform import asset_library_enabled, set_asset_library_enabled
+
+    async with async_session_factory() as session:
+        await set_asset_library_enabled(session, body.enabled)
+        await session.commit()
+        return {"enabled": await asset_library_enabled(session)}

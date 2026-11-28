@@ -25,3 +25,4 @@ class LoadedConfig:
     provider_meta: ProviderMeta | None
     rate_limiter: Any | None
     credential_id: int | None = None
+    credential_type: str = "builtin"

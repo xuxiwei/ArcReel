@@ -74,6 +74,10 @@
 | `frontend/src/components/pages/SystemConfigPage.tsx` + `stores/saas-role-store.ts` + `i18n/*/dashboard.ts` | SaaS：已搬到控制面后台的设置分区在工作台隐藏（`patches/settings-to-console.md`） | 已改 |
 | `server/app.py` | SaaS：挂 `saas/adapter/routes_admin_workbench.py`（跨组织资产、用户活动） | 已改 |
 | `frontend/src/onboarding/OnboardingTour.tsx` | SaaS：成员的新手引导跳过供应商、ArcReel Agent 两步（`patches/legacy-assets-and-onboarding.md`） | 已改 |
+| `lib/asset_library/bindings.py` + `lib/backends/provider_assets.py` | SaaS：平台方舟 Key 作为 `platform` 类型推理凭证可绑定素材库（`saas/adapter/asset_library_platform.py`，`patches/ark-asset-library.md`） | 已改 |
+| `lib/backends/backend_assembly/{assembler,loaded_config}.py` + `lib/video_runtime/builtin.py` | SaaS：用平台 Key 调方舟视频时报出 `platform` 凭证，素材库按绑定生效 | 已改 |
+| `lib/asset_library/generation_inputs.py` | SaaS：后台总开关关闭时不用素材库；入库失败的关联改为直接发图片，不阻塞生成 | 已改 |
+| `frontend/src/components/canvas/lorebook/{AssetBrowseCard,CharacterDerivativeRow}.tsx` | SaaS：成员不显示「从供应商素材库选择」（浏览接口仅管理员），保留「上传到供应商素材库」 | 已改 |
 
 ## 禁止
 

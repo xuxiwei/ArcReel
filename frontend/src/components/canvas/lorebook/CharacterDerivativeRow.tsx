@@ -49,6 +49,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useAppStore } from "@/stores/app-store";
+import { useIsRestrictedMember } from "@/stores/saas-role-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useActiveResourceIds } from "@/stores/tasks-store";
 import { errMsg } from "@/utils/async";
@@ -97,6 +98,8 @@ export function CharacterDerivativeRow({
   onSheetsChanged,
 }: CharacterDerivativeRowProps) {
   const { t } = useTranslation(["assets", "common", "dashboard"]);
+  // SaaS: browsing the provider library is an admin-only workbench API; members only upload.
+  const canBrowseProviderLibrary = !useIsRestrictedMember();
   const descriptionId = useId();
   const moreRef = useRef<HTMLButtonElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -388,10 +391,12 @@ export function CharacterDerivativeRow({
                         <CloudUpload aria-hidden />
                         {t("assets:provider_asset_upload")}
                       </DropdownMenuItem>
-                      <DropdownMenuItem disabled={rowBusy} onClick={() => openGuarded("provider-assets")}>
-                        <CloudDownload aria-hidden />
-                        {t("assets:provider_asset_select_from_library")}
-                      </DropdownMenuItem>
+                      {canBrowseProviderLibrary && (
+                        <DropdownMenuItem disabled={rowBusy} onClick={() => openGuarded("provider-assets")}>
+                          <CloudDownload aria-hidden />
+                          {t("assets:provider_asset_select_from_library")}
+                        </DropdownMenuItem>
+                      )}
                       <DropdownMenuItem disabled={rowBusy || !imageUrl} onClick={() => openGuarded("image-edit")}>
                         <PenLine aria-hidden />
                         {t("dashboard:image_edit_action")}

@@ -36,6 +36,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAppStore } from "@/stores/app-store";
+import { useIsRestrictedMember } from "@/stores/saas-role-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
 import { isAssetBusy, rejectIfAssetBusy, useAssetBusy } from "./assetBusyGuard";
@@ -84,6 +85,8 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
   writingNames,
 }: AssetBrowseCardProps) {
   const { t } = useTranslation(["assets", "dashboard"]);
+  // SaaS: browsing the provider library is an admin-only workbench API; members only upload.
+  const canBrowseProviderLibrary = !useIsRestrictedMember();
   const titleId = useId();
   const moreRef = useRef<HTMLButtonElement>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
@@ -214,10 +217,12 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
                       <CloudUpload aria-hidden />
                       {t("assets:provider_asset_upload")}
                     </DropdownMenuItem>
-                    <DropdownMenuItem disabled={imageBusy} onClick={() => openGuarded("provider-assets")}>
-                      <CloudDownload aria-hidden />
-                      {t("assets:provider_asset_select_from_library")}
-                    </DropdownMenuItem>
+                    {canBrowseProviderLibrary && (
+                      <DropdownMenuItem disabled={imageBusy} onClick={() => openGuarded("provider-assets")}>
+                        <CloudDownload aria-hidden />
+                        {t("assets:provider_asset_select_from_library")}
+                      </DropdownMenuItem>
+                    )}
                     <DropdownMenuItem disabled={imageBusy || !imageUrl} onClick={() => openGuarded("image-edit")}>
                       <PenLine aria-hidden />
                       {t("dashboard:image_edit_action")}

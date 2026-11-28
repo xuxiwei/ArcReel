@@ -23,7 +23,7 @@ class InferenceCredentialRef:
     与素材库绑定确认时计算摘要的口径一致。``api_key`` 只在进程内用于核对绑定，不进日志与检查点。
     """
 
-    credential_type: Literal["builtin", "custom"]
+    credential_type: Literal["builtin", "custom", "platform"]
     credential_id: int
     api_key: str
     base_url: str | None
