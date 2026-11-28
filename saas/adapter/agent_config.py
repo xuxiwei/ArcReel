@@ -11,10 +11,17 @@ and the model. Saved in workbench system settings:
 When configured, :func:`configured_agent_env` gives the complete ANTHROPIC_* environment, so a leftover
 local Agent credential can't mix its endpoint or models with the platform key. Empty tier models fall
 back to the main model: Claude Code otherwise asks for Claude model names the endpoint doesn't serve.
+
+Billing: Agent turns are charged by tokens. The model names of subscription endpoints (e.g.
+``doubao-seed-evolving``) are not in the price catalog, which would charge every turn a flat estimate,
+so the admin sets the Agent's token prices here (CNY per million tokens). When set, they price every
+Agent turn: input, output and cache-read tokens × price, then the usual CNY → credits conversion.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 KEY_PROVIDER_SETTING = "saas_agent_key_provider"
@@ -28,7 +35,63 @@ SETTING_KEYS: dict[str, str] = {
     "sonnet_model": "anthropic_default_sonnet_model",
     "opus_model": "anthropic_default_opus_model",
     "subagent_model": "claude_code_subagent_model",
+    "price_input": "saas_agent_price_input",
+    "price_output": "saas_agent_price_output",
+    "price_cache_read": "saas_agent_price_cache_read",
 }
+PRICE_FIELDS = ("price_input", "price_output", "price_cache_read")
+_PER_TOKENS = Decimal(1_000_000)
+
+
+@dataclass(frozen=True)
+class TokenPrices:
+    """CNY per million tokens."""
+
+    input: Decimal
+    output: Decimal
+    cache_read: Decimal
+
+
+def parse_price(raw: str) -> Decimal | None:
+    """A price field: empty → None; otherwise a finite number ≥ 0, else ValueError."""
+    text = (raw or "").strip()
+    if not text:
+        return None
+    try:
+        value = Decimal(text)
+    except InvalidOperation as exc:
+        raise ValueError(text) from exc
+    if not value.is_finite() or value < 0:
+        raise ValueError(text)
+    return value
+
+
+def prices_from_config(config: dict[str, str]) -> TokenPrices | None:
+    """Prices are on when input and output are both set; cache reads default to the input price."""
+    try:
+        price_in = parse_price(config.get("price_input", ""))
+        price_out = parse_price(config.get("price_output", ""))
+        price_cache = parse_price(config.get("price_cache_read", ""))
+    except ValueError:
+        return None
+    if price_in is None or price_out is None:
+        return None
+    return TokenPrices(input=price_in, output=price_out, cache_read=price_in if price_cache is None else price_cache)
+
+
+def tokens_cost_cny(prices: TokenPrices, row: Any) -> Decimal:
+    """One ``api_calls`` row of an Agent turn, in CNY. Cache writes are billed as input."""
+
+    def n(name: str) -> Decimal:
+        return Decimal(int(getattr(row, name, 0) or 0))
+
+    total = (
+        n("input_tokens") * prices.input
+        + n("output_tokens") * prices.output
+        + n("cache_read_tokens") * prices.cache_read
+        + (n("cache_write_5m_tokens") + n("cache_write_1h_tokens")) * prices.input
+    )
+    return total / _PER_TOKENS
 
 
 def config_from_settings(settings: dict[str, str]) -> dict[str, str]:
@@ -67,6 +130,13 @@ async def save_config(values: dict[str, Any]) -> dict[str, str]:
                 await repo.upsert(key, str(values[field] or "").strip())
         await session.commit()
         return config_from_settings(await repo.get_all())
+
+
+async def load_token_prices() -> TokenPrices | None:
+    try:
+        return prices_from_config(await load_config())
+    except Exception:  # settings unreadable: fall back to catalog prices / the estimate
+        return None
 
 
 async def configured_agent_env(overlays: dict[str, dict[str, str]]) -> dict[str, str]:

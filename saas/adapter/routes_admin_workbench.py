@@ -212,6 +212,9 @@ class AgentConfigBody(BaseModel):
     sonnet_model: str = ""
     opus_model: str = ""
     subagent_model: str = ""
+    price_input: str = ""
+    price_output: str = ""
+    price_cache_read: str = ""
 
 
 async def _agent_payload() -> dict[str, Any]:
@@ -257,6 +260,11 @@ async def put_agent_config(body: AgentConfigBody) -> dict[str, Any]:
             raise HTTPException(status_code=422, detail="接口地址要以 https:// 开头")
         if not values["model"]:
             raise HTTPException(status_code=422, detail="请填写模型")
+    for field in agent_config.PRICE_FIELDS:
+        try:
+            agent_config.parse_price(values[field])
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="价格要填不小于 0 的数字") from exc
     await agent_config.save_config(values)
     return await _agent_payload()
 

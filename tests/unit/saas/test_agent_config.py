@@ -87,3 +87,91 @@ def test_model_is_required_once_a_key_is_chosen(db) -> None:
         json={"key_provider": "ark-agent-plan", "base_url": "https://ark.cn-beijing.volces.com/api/plan", "model": ""},
     )
     assert res.status_code == 422
+
+
+def test_token_prices_and_cost() -> None:
+    from decimal import Decimal
+    from types import SimpleNamespace
+
+    assert agent_config.prices_from_config({"price_input": "4", "price_output": ""}) is None
+    prices = agent_config.prices_from_config({"price_input": "4", "price_output": "16", "price_cache_read": ""})
+    assert prices is not None
+    assert prices.cache_read == Decimal("4")
+    row = SimpleNamespace(
+        input_tokens=1_000_000,
+        output_tokens=500_000,
+        cache_read_tokens=0,
+        cache_write_5m_tokens=0,
+        cache_write_1h_tokens=0,
+    )
+    assert agent_config.tokens_cost_cny(prices, row) == Decimal("12")
+
+
+def test_bad_price_is_rejected(db) -> None:
+    res = _client().put("/api/v1/saas/admin/agent", json={"price_input": "-1"})
+    assert res.status_code == 422
+
+
+def test_agent_turn_is_charged_by_tokens(db, monkeypatch) -> None:
+    from datetime import UTC, datetime
+    from decimal import Decimal
+
+    from lib.db.models.api_call import ApiCall
+    from saas.adapter import credits_hook
+    from saas.adapter.billing_context import BillingIdentity
+
+    async def setup() -> int:
+        async with db() as s:
+            await s.run_sync(lambda sync: ApiCall.__table__.create(sync.get_bind()))
+        async with db() as s:
+            row = ApiCall(
+                project_name="p",
+                call_type="text",
+                model="doubao-seed-evolving",
+                status="success",
+                started_at=datetime.now(UTC),
+                provider="anthropic",
+                user_id="u",
+                input_tokens=200_000,
+                output_tokens=50_000,
+                cache_read_tokens=1_000_000,
+                cost_amount=None,
+                currency="USD",
+                unpriced_reason="no_entry",
+            )
+            s.add(row)
+            await s.commit()
+            return row.id
+
+    call_id = asyncio.run(setup())
+    asyncio.run(agent_config.save_config({"price_input": "4", "price_output": "16", "price_cache_read": "0.8"}))
+    monkeypatch.setenv("SAAS_CNY_YUAN_TO_CREDITS", "100")
+    monkeypatch.setenv("SAAS_COST_TO_CREDITS_MULTIPLIER", "1")
+    monkeypatch.setattr(credits_hook, "is_saas", lambda: True)
+    settled: dict = {}
+
+    async def fake_settle(**kwargs):
+        settled.update(kwargs)
+        return {}
+
+    monkeypatch.setattr(credits_hook, "control_plane_internal_settle", fake_settle)
+    asyncio.run(
+        credits_hook.settle_agent_turn(
+            hold_ref="h1",
+            call_ids=[call_id],
+            session_factory=db,
+            identity=BillingIdentity(org_id="o", user_id="u"),
+            session_id="s",
+        )
+    )
+    # 0.2M×4 + 0.05M×16 + 1M×0.8 = 2.4 yuan → 240 credits
+    assert settled["actual_credits"] == Decimal("240")
+
+    async def reread():
+        async with db() as s:
+            return await s.get(ApiCall, call_id)
+
+    row = asyncio.run(reread())
+    assert Decimal(str(row.cost_amount)) == Decimal("2.4")
+    assert row.currency == "CNY"
+    assert row.unpriced_reason is None

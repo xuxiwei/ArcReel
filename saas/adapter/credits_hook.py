@@ -198,6 +198,27 @@ async def _load_calls(session_factory: Any, call_ids: list[int]) -> list[Any]:
         return list((await session.execute(select(ApiCall).where(ApiCall.id.in_(call_ids)))).scalars().all())
 
 
+async def _write_agent_costs(session_factory: Any, costs: dict[int, Decimal]) -> None:
+    """Keep ``api_calls`` (usage stats, reconciliation) at the price the user was charged."""
+    from sqlalchemy import update
+
+    from lib.db.models.api_call import ApiCall
+
+    if not costs:
+        return
+    try:
+        async with session_factory() as session:
+            for call_id, amount in costs.items():
+                await session.execute(
+                    update(ApiCall)
+                    .where(ApiCall.id == call_id)
+                    .values(cost_amount=amount, currency="CNY", unpriced_reason=None)
+                )
+            await session.commit()
+    except Exception:
+        logger.exception("saas agent cost write-back failed calls=%s", list(costs))
+
+
 async def _load_call(session_factory: Any, api_call_id: int) -> Any | None:
     rows = await _load_calls(session_factory, [api_call_id])
     return rows[0] if rows else None
@@ -399,6 +420,16 @@ async def settle_agent_turn(
         logger.error("saas agent settle refused: missing billing identity session=%s", session_id)
         return
     rows = await _load_calls(session_factory, call_ids)
+    from saas.adapter.agent_config import load_token_prices, tokens_cost_cny
+
+    # Token prices set by the admin (console → Agent 模型) price every Agent row by its tokens.
+    prices = await load_token_prices()
+    repriced: dict[int, Decimal] = {}
+    if prices is not None:
+        for row in rows:
+            repriced[row.id] = tokens_cost_cny(prices, row).quantize(_COST_QUANT, rounding=ROUND_HALF_UP)
+            row.cost_amount, row.currency = repriced[row.id], "CNY"
+        await _write_agent_costs(session_factory, repriced)
     total = Decimal("0")
     cost_cny: Decimal | None = Decimal("0")
     for row in rows:
