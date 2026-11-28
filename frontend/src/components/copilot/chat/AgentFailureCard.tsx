@@ -6,7 +6,7 @@ import { Link } from "wouter";
 import { settingsSectionPath } from "@/app-routes";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { useIsSaas } from "@/stores/saas-role-store";
+import { useIsRestrictedMember, useIsSaas } from "@/stores/saas-role-store";
 import type { FailureObservation } from "@/types";
 import { copyText } from "@/utils/clipboard";
 
@@ -58,6 +58,8 @@ export function AgentFailureCard({ failure, announce = false, onRetry }: Readonl
   const { t } = useTranslation("dashboard");
   // SaaS: the Agent's model is set by the platform admin in the control-plane console, not here.
   const saas = useIsSaas();
+  // SaaS members get the conclusion only; the raw diagnostics are for whoever runs the platform.
+  const diagnostics = !useIsRestrictedMember();
   const [copied, setCopied] = useState(false);
   const titleId = useId();
   const startup = failure.phase === "startup";
@@ -101,6 +103,7 @@ export function AgentFailureCard({ failure, announce = false, onRetry }: Readonl
         </div>
       </div>
 
+      {(diagnostics || (startup && onRetry)) && (
       <Collapsible render={<div className="flex min-w-0 flex-col gap-2" />}>
         <div className="flex flex-wrap items-center gap-1">
           {startup && onRetry && (
@@ -118,19 +121,24 @@ export function AgentFailureCard({ failure, announce = false, onRetry }: Readonl
               {t("agent_failure_open_settings")}
             </Link>
           )}
-          <Button variant="ghost" size="xs" onClick={copy}>
-            {copied ? <Check data-icon="inline-start" aria-hidden /> : <Copy data-icon="inline-start" aria-hidden />}
-            {t(copied ? "agent_failure_copied" : "agent_failure_copy")}
-          </Button>
-          <CollapsibleTrigger render={<Button variant="ghost" size="xs" className="ml-auto" />}>
-            {t("agent_failure_details_label")}
-            <ChevronRight
-              data-icon="inline-end"
-              aria-hidden
-              className="transition-transform group-aria-expanded/button:rotate-90"
-            />
-          </CollapsibleTrigger>
+          {diagnostics && (
+            <>
+              <Button variant="ghost" size="xs" onClick={copy}>
+                {copied ? <Check data-icon="inline-start" aria-hidden /> : <Copy data-icon="inline-start" aria-hidden />}
+                {t(copied ? "agent_failure_copied" : "agent_failure_copy")}
+              </Button>
+              <CollapsibleTrigger render={<Button variant="ghost" size="xs" className="ml-auto" />}>
+                {t("agent_failure_details_label")}
+                <ChevronRight
+                  data-icon="inline-end"
+                  aria-hidden
+                  className="transition-transform group-aria-expanded/button:rotate-90"
+                />
+              </CollapsibleTrigger>
+            </>
+          )}
         </div>
+        {diagnostics && (
         <CollapsibleContent>
           <div className="flex flex-col gap-2 border-t border-destructive/20 pt-2 text-xs text-subtle-foreground">
             <p className="text-muted-foreground">{t("agent_failure_observation_note")}</p>
@@ -157,7 +165,9 @@ export function AgentFailureCard({ failure, announce = false, onRetry }: Readonl
             </pre>
           </div>
         </CollapsibleContent>
+        )}
       </Collapsible>
+      )}
     </section>
   );
 }
