@@ -94,9 +94,10 @@ const MEMBER_SECTIONS: ReadonlySet<SettingsSection> = new Set<SettingsSection>([
 
 /**
  * SaaS: platform settings that now live in the control-plane admin console (``arcreel-control-plane/web``).
- * Providers, default models, endpoints, the ArcReel Agent and the market stay here until they are ported.
+ * Providers, endpoints, the ArcReel Agent and the market stay here until they are ported.
  */
 const MOVED_TO_CONSOLE: ReadonlySet<SettingsSection> = new Set<SettingsSection>([
+  "default-models",
   "asset-library",
   "external-agent",
   "access-tokens",
