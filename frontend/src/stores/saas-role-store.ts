@@ -92,6 +92,12 @@ export const useSaasRoleStore = create<SaasRoleState>((set, get) => ({
       set({ loadedFor: key, loading: false, saas: false, isAdmin: true });
       return;
     }
+    if (!token) {
+      // Signed out (e.g. on /login): asking would answer 401, and the global 401 handler
+      // reloads /login, which mounts this hook again — an endless reload loop.
+      set({ loadedFor: key, loading: false, saas: true, isAdmin: false });
+      return;
+    }
     try {
       const me = await API.getMeWallet();
       retryAttempt = 0;
