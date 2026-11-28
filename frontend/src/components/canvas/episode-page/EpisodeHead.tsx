@@ -16,6 +16,7 @@ import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
 import { useCostStore } from "@/stores/cost-store";
 import type { EpisodeCost, EpisodeMeta } from "@/types";
 import { currentScriptBreakdown, formatCost, totalBreakdown } from "@/utils/cost-format";
+import { useCreditDisplay } from "@/stores/credit-rates-store";
 import { episodeDisplayName, episodePosition } from "@/utils/episode-display";
 import { itemCountKey, type GenerationRoute } from "@/utils/generation-mode";
 
@@ -59,6 +60,7 @@ export function EpisodeHead({
   onSaveTitle: (title: string) => Promise<void>;
   canDelete: boolean;
 }) {
+  useCreditDisplay();
   const { t } = useTranslation("dashboard");
   const [, setLocation] = useLocation();
   const ledger = useEpisodeLedger();

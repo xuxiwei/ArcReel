@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { useNowTick } from "@/hooks/useNowTick";
 import { isActiveStatus, useTasksStore } from "@/stores/tasks-store";
 import { formatCurrencyAmount } from "@/utils/cost-format";
+import { useCreditDisplay } from "@/stores/credit-rates-store";
 import { formatShortDateTime } from "@/utils/date-format";
 import {
   MEDIA_META,
@@ -150,6 +151,7 @@ export function RecordRow({
   onOpenDetail,
   trailing,
 }: RecordRowProps) {
+  useCreditDisplay();
   const { t } = useTranslation("dashboard");
   const model = record.model ?? t("usage_model_unresolved");
   const recordId = record.recordId;

@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { cn } from "cn";
 import { formatCurrencyAmount } from "@/utils/cost-format";
+import { useCreditDisplay } from "@/stores/credit-rates-store";
 import type { WorkflowAdmission } from "@/types/workflow";
 import { ProblemList } from "./ProblemList";
 import { EpisodeItemRef } from "@/components/shared/episode-item/EpisodeItemRef";
@@ -13,6 +14,7 @@ interface Props {
 }
 
 export function BatchAdmissionSummary({ admission, skippedUnitIds, className }: Props) {
+  useCreditDisplay();
   const { t } = useTranslation("workflow");
   const blocked = admission.decision === "blocked";
   const tiers = admission.confirmation?.tiers ?? [];

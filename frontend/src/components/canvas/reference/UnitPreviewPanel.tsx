@@ -8,6 +8,7 @@ import { PresentationPlayer } from "@/components/shared/PresentationPlayer";
 import { NarrationAudioCard } from "@/components/canvas/timeline/NarrationAudioCard";
 import { UPLOAD_VIDEO_ACCEPT, UploadIconButton } from "@/components/canvas/shared/UploadIconButton";
 import { formatCost } from "@/utils/cost-format";
+import { useCreditDisplay } from "@/stores/credit-rates-store";
 import { resolveUnitStatus } from "./unit-status";
 import { UnitStatusBadge } from "./UnitStatusBadge";
 import type { CostBreakdown, ReferenceVideoUnit, UnitStatus } from "@/types";
@@ -67,6 +68,7 @@ export function UnitPreviewPanel({
   saveFirst = false,
   saving = false,
 }: UnitPreviewPanelProps) {
+  useCreditDisplay();
   const { t } = useTranslation("dashboard");
   const clip = unit?.generated_assets?.video_clip ?? null;
   const clipFp = useProjectsStore((s) => (clip ? s.getAssetFingerprint(clip) : null));

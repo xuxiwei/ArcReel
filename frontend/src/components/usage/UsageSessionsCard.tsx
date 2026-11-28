@@ -12,6 +12,7 @@ import type { UsageAgentSession, UsageAgentSessionRecord, UsageSummary } from "@
 import { USAGE_PAGE_SIZE } from "@/stores/usage-records-store";
 import type { UsageRecordsFilters } from "@/stores/usage-records-store";
 import { costEntries, formatCurrencyAmount } from "@/utils/cost-format";
+import { useCreditDisplay } from "@/stores/credit-rates-store";
 import { formatShortDateTime } from "@/utils/date-format";
 import { UsagePager } from "./UsagePager";
 import {
@@ -67,6 +68,7 @@ export function UsageSessionsCard({
   hasNext,
   onPage,
 }: UsageSessionsCardProps) {
+  useCreditDisplay();
   const { t, i18n } = useTranslation("dashboard");
   const headingId = useId();
   const titleOf = projectTitleResolver(summary);
@@ -226,6 +228,7 @@ type DetailState =
   | { status: "ready"; items: UsageAgentSessionRecord[] };
 
 function SessionDetail({ sessionId, title }: { sessionId: string; title: string }) {
+  useCreditDisplay();
   const { t, i18n } = useTranslation("dashboard");
   const [state, setState] = useState<DetailState>({ status: "loading" });
   const [openRows, setOpenRows] = useState<ReadonlySet<number>>(new Set());

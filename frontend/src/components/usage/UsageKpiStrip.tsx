@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import type { UsageSummary } from "@/types";
 import { formatCurrencyAmount } from "@/utils/cost-format";
+import { useCreditDisplay } from "@/stores/credit-rates-store";
 import { formatCalendarDay, formatCount, formatRatio } from "./usage-record-format";
 
 const DASH = "—";
@@ -24,6 +25,7 @@ function Cell({ label, value, sub }: { label: string; value: string; sub: ReactN
 }
 
 export function UsageKpiStrip({ summary }: { summary: UsageSummary | null }) {
+  useCreditDisplay();
   const { t, i18n } = useTranslation("dashboard");
   const language = i18n.language;
 

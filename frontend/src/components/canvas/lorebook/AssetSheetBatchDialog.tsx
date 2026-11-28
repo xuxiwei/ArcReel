@@ -16,6 +16,7 @@ import {
 import { useAppStore } from "@/stores/app-store";
 import { errMsg } from "@/utils/async";
 import { costEntries, formatCurrencyAmount } from "@/utils/cost-format";
+import { useCreditDisplay } from "@/stores/credit-rates-store";
 import type { AssetSheetBatchPreview, AssetSheetBatchScope, AssetSheetRef, AssetSheetType } from "@/types";
 
 const TYPE_ORDER: AssetSheetType[] = ["character", "scene", "prop", "product"];
@@ -37,6 +38,7 @@ export function AssetSheetBatchDialog({
   scope: AssetSheetBatchScope;
   onClose: () => void;
 }) {
+  useCreditDisplay();
   const { t } = useTranslation(["assets", "common"]);
   const [preview, setPreview] = useState<AssetSheetBatchPreview | null>(null);
   const [error, setError] = useState<string | null>(null);

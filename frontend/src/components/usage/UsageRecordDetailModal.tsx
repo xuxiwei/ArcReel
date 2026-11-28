@@ -14,6 +14,7 @@ import { InfoTip, InfoTipContent, InfoTipTrigger } from "@/components/ui/info-ti
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { UsageRecordDetail } from "@/types";
 import { formatCurrencyAmount } from "@/utils/cost-format";
+import { useCreditDisplay } from "@/stores/credit-rates-store";
 import { formatShortDateTime } from "@/utils/date-format";
 import { itemIdsInEpisodeText } from "@/utils/episode-display";
 import {
@@ -268,6 +269,7 @@ export function UsageRecordDetailModal({
   providerLabel,
   onClose,
 }: UsageRecordDetailModalProps) {
+  useCreditDisplay();
   const { t, i18n } = useTranslation(["dashboard", "common", "errors"]);
   const [rawOpen, setRawOpen] = useState(false);
 

@@ -7,6 +7,7 @@ import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/compone
 import { useCostStore } from "@/stores/cost-store";
 import type { CostByType, UnpricedModel } from "@/types";
 import { costEntries, formatCostTotal, totalBreakdown } from "@/utils/cost-format";
+import { useCreditDisplay } from "@/stores/credit-rates-store";
 import { customModelSettingsPath } from "@/utils/output-truncation";
 
 type MediaCallType = UnpricedModel["call_type"];
@@ -52,6 +53,7 @@ function priceTargets(models: UnpricedModel[]): { key: string; label: string; hr
 const countOf = (models: UnpricedModel[]) => models.reduce((sum, model) => sum + model.count, 0);
 
 export function CostLine({ projectName, readOnly = false }: { projectName: string; readOnly?: boolean }) {
+  useCreditDisplay();
   const { t } = useTranslation("dashboard");
   const costData = useCostStore((s) => s.costData);
   const loading = useCostStore((s) => s.loading);

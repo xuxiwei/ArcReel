@@ -5,6 +5,7 @@ import { LazyBoundary } from "@/components/shared/LazyBoundary";
 import { Button } from "@/components/ui/button";
 import type { UsageSummary } from "@/types";
 import { costEntries, formatCurrencyAmount } from "@/utils/cost-format";
+import { useCreditDisplay } from "@/stores/credit-rates-store";
 import { lazyNamed } from "@/utils/lazy-component";
 import { SeriesSwatch } from "./SeriesSwatch";
 import { formatCount } from "./usage-record-format";
@@ -24,6 +25,7 @@ const NAME_KEYS: Record<TrendMetric, { daily: string; weekly: string }> = {
 };
 
 export function UsageTrendCard({ summary }: { summary: UsageSummary | null }) {
+  useCreditDisplay();
   const { t, i18n } = useTranslation("dashboard");
   const [metric, setMetric] = useState<TrendMetric>("calls");
 

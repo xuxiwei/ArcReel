@@ -16,6 +16,7 @@ import {
 } from "@/components/canvas/shared/UploadIconButton";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { formatCost } from "@/utils/cost-format";
+import { useCreditDisplay } from "@/stores/credit-rates-store";
 import type { CostBreakdown } from "@/types";
 import { useItemPositionLabel } from "@/components/shared/episode-item/useEpisodeItem";
 import { ImageEditButton } from "./ImageEditButton";
@@ -73,6 +74,7 @@ export function MediaCard({
   onRestoringChange,
   checkBusy,
 }: MediaCardProps) {
+  useCreditDisplay();
   const { t } = useTranslation("dashboard");
   const itemLabel = useItemPositionLabel(segmentId);
   const [restoring, setRestoring] = useState(false);

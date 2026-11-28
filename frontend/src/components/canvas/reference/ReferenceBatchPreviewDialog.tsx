@@ -19,6 +19,7 @@ import { EpisodeItemRef } from "@/components/shared/episode-item/EpisodeItemRef"
 import { hasReferenceOverflow } from "./batch-outcome";
 import { errMsg } from "@/utils/async";
 import { costEntries, formatCurrencyAmount } from "@/utils/cost-format";
+import { useCreditDisplay } from "@/stores/credit-rates-store";
 import type { ReferenceBatchPreview } from "@/types";
 
 export type ReferenceBatchSkipReason = "has_video" | "local_write";
@@ -45,6 +46,7 @@ export function ReferenceBatchPreviewDialog({
   onEditReferences: (unitId: string) => void;
   onClose: () => void;
 }) {
+  useCreditDisplay();
   const { t } = useTranslation(["dashboard", "common"]);
   const [preview, setPreview] = useState<ReferenceBatchPreview | null>(null);
   const [error, setError] = useState<string | null>(null);

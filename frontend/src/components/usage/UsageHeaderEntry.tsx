@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverTrigger } from "@/components/ui/popover";
 import { useAppStore } from "@/stores/app-store";
-import { useCostInCredits } from "@/stores/credit-rates-store";
+import { useCostInCredits, useCreditDisplay } from "@/stores/credit-rates-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { useUsageHeaderStore } from "@/stores/usage-header-store";
 import { costEntries, formatCurrencyAmount } from "@/utils/cost-format";
@@ -14,6 +14,7 @@ import { UsagePopover } from "./UsagePopover";
 const FALLBACK_CURRENCY = "USD";
 
 export function UsageHeaderEntry({ projectName }: { projectName: string }) {
+  useCreditDisplay();
   const { t } = useTranslation("dashboard");
 
   const open = useAppStore((s) => s.usagePanelOpen);

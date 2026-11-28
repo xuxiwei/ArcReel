@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { formatCost } from "@/utils/cost-format";
+import { useCreditDisplay } from "@/stores/credit-rates-store";
 import type { CostBreakdown } from "@/types";
 import { useItemPositionLabel } from "@/components/shared/episode-item/useEpisodeItem";
 import { VersionTimeMachine } from "./VersionTimeMachine";
@@ -38,6 +39,7 @@ export function NarrationAudioCard({
   onGenerate,
   generateLabel: generateLabelOverride,
 }: NarrationAudioCardProps) {
+  useCreditDisplay();
   const { t } = useTranslation("dashboard");
   const itemLabel = useItemPositionLabel(segmentId);
   const demo = useDemoWorkbench();

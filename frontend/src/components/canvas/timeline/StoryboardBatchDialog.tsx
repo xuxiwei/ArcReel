@@ -19,6 +19,7 @@ import { EpisodeItemRef } from "@/components/shared/episode-item/EpisodeItemRef"
 import { useAppStore } from "@/stores/app-store";
 import { errMsg } from "@/utils/async";
 import { costEntries, formatCurrencyAmount } from "@/utils/cost-format";
+import { useCreditDisplay } from "@/stores/credit-rates-store";
 import type { StoryboardBatchKind, StoryboardBatchPreview, WorkflowAdmission } from "@/types";
 
 export function StoryboardBatchDialog({
@@ -32,6 +33,7 @@ export function StoryboardBatchDialog({
   kind: StoryboardBatchKind;
   onClose: () => void;
 }) {
+  useCreditDisplay();
   const { t } = useTranslation(["dashboard", "common"]);
   const [preview, setPreview] = useState<StoryboardBatchPreview | null>(null);
   const [error, setError] = useState<string | null>(null);

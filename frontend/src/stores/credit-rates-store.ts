@@ -1,7 +1,10 @@
 import { useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { create } from "zustand";
 import { API } from "@/api";
-import { useIsSaas } from "@/stores/saas-role-store";
+import { useAuthStore } from "@/stores/auth-store";
+import { readSaasHint, useIsSaas } from "@/stores/saas-role-store";
+import { setCreditDisplay } from "@/utils/cost-format";
 import type { CostBreakdown } from "@/types";
 
 /**
@@ -16,12 +19,15 @@ interface CreditRates {
 interface CreditRatesState {
   rates: CreditRates | null;
   loading: boolean;
+  /** The last load failed: costs fall back to money instead of staying blank. */
+  failed: boolean;
   load: () => Promise<void>;
 }
 
 export const useCreditRatesStore = create<CreditRatesState>((set, get) => ({
   rates: null,
   loading: false,
+  failed: false,
   load: async () => {
     if (get().loading || get().rates) return;
     set({ loading: true });
@@ -30,9 +36,9 @@ export const useCreditRatesStore = create<CreditRatesState>((set, get) => ({
       const cnyPer = Object.fromEntries(
         Object.entries(raw.cny_per).map(([code, value]) => [code, Number(value)]),
       );
-      set({ rates: { creditsPerCny: Number(raw.credits_per_cny), cnyPer }, loading: false });
+      set({ rates: { creditsPerCny: Number(raw.credits_per_cny), cnyPer }, loading: false, failed: false });
     } catch {
-      set({ loading: false }); // no rates: callers keep showing money
+      set({ loading: false, failed: true }); // no rates: callers keep showing money
     }
   },
 }));
@@ -65,4 +71,33 @@ export function useCostInCredits(breakdown: CostBreakdown | undefined): string |
   if (!saas || !rates) return null;
   const credits = costToCredits(breakdown, rates);
   return credits === null ? null : formatCredits(credits);
+}
+
+/**
+ * SaaS: show every cost the component formats (formatCost / formatCurrencyAmount) in credits.
+ * Call it at the top of each component that formats costs: it registers the rates with
+ * utils/cost-format before the component renders and re-renders it once the rates arrive.
+ * While SaaS is expected but the rates are still loading, costs show "—" rather than money.
+ */
+export function useCreditDisplay(): void {
+  const { t } = useTranslation("dashboard");
+  const token = useAuthStore((s) => s.token);
+  const saas = useIsSaas();
+  const rates = useCreditRatesStore((s) => s.rates);
+  const failed = useCreditRatesStore((s) => s.failed);
+  const load = useCreditRatesStore((s) => s.load);
+  useEffect(() => {
+    if (saas && !rates && !failed) void load();
+  }, [saas, rates, failed, load]);
+  const expected = Boolean(token) && (saas || readSaasHint());
+  if (!expected || failed) {
+    setCreditDisplay(null);
+  } else if (!rates) {
+    setCreditDisplay("pending");
+  } else {
+    setCreditDisplay({
+      ...rates,
+      label: (credits) => t("credits_balance_badge", { balance: credits, defaultValue: `${credits} credits` }),
+    });
+  }
 }

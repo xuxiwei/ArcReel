@@ -34,7 +34,7 @@ let retryTimer: ReturnType<typeof setTimeout> | null = null;
 const SAAS_HINT_KEY = "arcreel:deployment-is-saas";
 
 /** Last deployment mode this browser saw; storage can be missing or throw. */
-function readSaasHint(): boolean {
+export function readSaasHint(): boolean {
   try {
     return globalThis.localStorage?.getItem(SAAS_HINT_KEY) === "1";
   } catch {
@@ -76,7 +76,7 @@ export const useSaasRoleStore = create<SaasRoleState>((set, get) => ({
       retryAttempt = 0;
     }
     set({ loading: true });
-    let saas = false;
+    let saas: boolean;
     try {
       const status = await fetch("/api/v1/auth/status");
       const payload: unknown = status.ok ? await status.json() : null;

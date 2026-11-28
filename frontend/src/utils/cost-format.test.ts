@@ -1,9 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   costEntries,
   formatCost,
   formatCostOrZero,
+  formatCostTotal,
   formatCurrencyAmount,
+  setCreditDisplay,
   totalBreakdown,
   currentScriptBreakdown,
 } from "./cost-format";
@@ -58,5 +60,31 @@ describe("cost-format", () => {
     expect(totalBreakdown(actual)).toEqual({ USD: 12 });
     expect(currentScriptBreakdown(actual)).toEqual({ USD: 2 });
     expect(currentScriptBreakdown({ unassigned: { USD: 10 } })).toEqual({});
+  });
+
+  describe("SaaS credit display", () => {
+    const label = (credits: string) => `${credits} 积分`;
+    afterEach(() => setCreditDisplay(null));
+
+    it("shows costs as one credits total", () => {
+      setCreditDisplay({ creditsPerCny: 10, cnyPer: { CNY: 1, USD: 7 }, label });
+      expect(formatCurrencyAmount("CNY", 1.234)).toBe("12.34 积分");
+      expect(formatCost({ CNY: 1, USD: 1 })).toBe("80 积分");
+      expect(formatCostTotal({}, true)).toBe("0 积分");
+      expect(formatCost({ CNY: 0 })).toBe("—");
+    });
+
+    it("keeps money for a currency without a rate", () => {
+      setCreditDisplay({ creditsPerCny: 10, cnyPer: { CNY: 1 }, label });
+      expect(formatCurrencyAmount("USD", 1.2)).toBe("$1.20");
+      expect(formatCost({ CNY: 1, USD: 1.2 })).toBe("10 积分 + $1.20");
+    });
+
+    it("shows a placeholder, never money, while the rates load", () => {
+      setCreditDisplay("pending");
+      expect(formatCurrencyAmount("CNY", 1)).toBe("—");
+      expect(formatCost({ CNY: 1 })).toBe("—");
+      expect(formatCostTotal({}, true)).toBe("—");
+    });
   });
 });

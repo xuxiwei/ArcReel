@@ -12,7 +12,7 @@ import { TruncatedText } from "@/components/shared/TruncatedText";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle } from "@/components/ui/popover";
 import { useAppStore } from "@/stores/app-store";
-import { useCostInCredits } from "@/stores/credit-rates-store";
+import { useCostInCredits, useCreditDisplay } from "@/stores/credit-rates-store";
 import { selectActiveTasks, useTasksStore } from "@/stores/tasks-store";
 import { useUsageHeaderStore } from "@/stores/usage-header-store";
 import type { TaskItem, UsageSummary } from "@/types";
@@ -53,6 +53,7 @@ function KpiCell({ label, value, sub }: { label: string; value: string; sub: str
 }
 
 function KpiStrip({ summary }: { summary: UsageSummary | null }) {
+  useCreditDisplay();
   const { t, i18n } = useTranslation("dashboard");
   const kpi = summary?.kpi ?? null;
   const primary = summary?.primary_currency ?? null;

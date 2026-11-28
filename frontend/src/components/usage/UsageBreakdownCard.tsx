@@ -8,6 +8,7 @@ import type { UsageStatsBlock, UsageSummary } from "@/types";
 import { viewPatch } from "@/stores/usage-records-store";
 import type { UsageRecordsFilters } from "@/stores/usage-records-store";
 import { costEntries, formatCurrencyAmount } from "@/utils/cost-format";
+import { useCreditDisplay } from "@/stores/credit-rates-store";
 import { formatRatio, projectTitleResolver, providerLabelResolver, usageProjectLabel } from "./usage-record-format";
 
 type BreakdownDim = "project" | "provider" | "model";
@@ -177,6 +178,7 @@ function CostCell({
   unpricedCalls: number;
   primary: string | null;
 }) {
+  useCreditDisplay();
   const { t } = useTranslation("dashboard");
   const entries = costEntries(cost);
   const others = entries.filter(([currency]) => currency !== primary);
